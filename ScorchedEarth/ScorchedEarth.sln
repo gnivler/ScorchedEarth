@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio 15
+VisualStudioVersion = 15.0.27703.2035
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ScorchedEarth", "ScorchedEarth\ScorchedEarth.csproj", "{015FEEF3-3304-469B-9909-D443A54F288F}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{015FEEF3-3304-469B-9909-D443A54F288F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{015FEEF3-3304-469B-9909-D443A54F288F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{015FEEF3-3304-469B-9909-D443A54F288F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{015FEEF3-3304-469B-9909-D443A54F288F}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {52F3E8C6-DC4A-4937-BB37-F832552E7243}
+	EndGlobalSection
+EndGlobal
