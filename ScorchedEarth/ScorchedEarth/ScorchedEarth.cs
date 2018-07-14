@@ -172,6 +172,99 @@ namespace ScorchedEarth
         [HarmonyPatch(typeof(FootstepManager), "ProcessScorches")]
         public class PatchProcessScorches
         {
+            #region Method IL
+            /*
+            ProcessScorches IL
+            ================================================================================
+            call		Single get_realtimeSinceStartup()
+            stloc.0		
+            ldc.i4.0		
+            stloc.1		
+            br		    System.Reflection.Emit.Label
+            ldarg.0		
+            call		System.Collections.Generic.List`1[BattleTech.Rendering.FootstepManager+TerrainDecal] get_scorchList()
+            ldloc.1		
+            callvirt	BattleTech.Rendering.FootstepManager+TerrainDecal get_Item(Int32)
+            stloc.2		
+            ldc.r4		0
+            stloc.3		
+            ldloc.2		
+            callvirt	Single get_startTime()
+            ldc.r4		-1
+            beq 		System.Reflection.Emit.Label
+            ldloc.0		
+            ldloc.2		
+            callvirt	Single get_startTime()
+            sub		
+            ldsfld		System.Single scorchLife
+            bgt.un		System.Reflection.Emit.Label
+            ldloc.2		
+            callvirt	Single get_startTime()
+            ldsfld		System.Single footstepLife
+            add		
+            ldsfld		System.Single decalFadeTime
+            sub		
+            stloc.s		System.Single (4)
+            ldloc.0		
+            ldloc.s		System.Single (4)
+            sub		
+            ldsfld		System.Single decalFadeTime
+            div		
+            stloc.3		
+            br	    	System.Reflection.Emit.Label
+            ldarg.0		
+            call		System.Collections.Generic.List`1[BattleTech.Rendering.FootstepManager+TerrainDecal] get_scorchList()
+            ldloc.1		
+            callvirt	Void RemoveAt(Int32)
+            ldloc.1		
+            ldc.i4.1		
+            sub		
+            stloc.1		
+            ldloc.1		
+            ldc.i4.1		
+            add		
+            stloc.1		
+            br		    System.Reflection.Emit.Label
+            ldarg.0		
+            call		System.Single[] get_scorchAlphas()
+            ldloc.1		
+            ldc.r4		0
+            ldc.r4		1
+            ldc.r4		1
+            ldloc.3		
+            sub		
+            call		Single SmoothStep(Single, Single, Single)
+            stelem.r4		
+            ldarg.0		
+            call		UnityEngine.Matrix4x4[] get_scorchTRS()
+            ldloc.1		
+            ldloc.2		
+            callvirt	Matrix4x4 get_transformMatrix()
+            stelem		UnityEngine.Matrix4x4
+            br		    System.Reflection.Emit.Label
+            ldloc.1		
+            ldarg.0		
+            call		System.Collections.Generic.List`1[BattleTech.Rendering.FootstepManager+TerrainDecal] get_scorchList()
+            callvirt	Int32 get_Count()
+            bge 		System.Reflection.Emit.Label
+            ldloc.1		
+            ldsfld		System.Int32 maxDecals
+            blt	    	System.Reflection.Emit.Label
+            ldstr		_BT_ScorchAlpha
+            ldarg.0		
+            call		System.Single[] get_scorchAlphas()
+            call		Void SetGlobalFloatArray(System.String, System.Single[])
+            ldarg.1		
+            ldarg.0		
+            call		System.Collections.Generic.List`1[BattleTech.Rendering.FootstepManager+TerrainDecal] get_scorchList()
+            callvirt	Int32 get_Count()
+            stind.i4		
+            ldarg.0		
+            call		UnityEngine.Matrix4x4[] get_scorchTRS()
+            ret		
+            ================================================================================*/
+            #endregion
+
             static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
             {
                 var codes = new List<CodeInstruction>(instructions);
@@ -187,7 +280,7 @@ namespace ScorchedEarth
                     {
                         continue;
                     }
-                    PatchDecalLife(codes, i, sb);                                                        // maybe try the decal fade time instead of startime?
+                    PatchTimeSinceStartup(codes, i, sb);                                                        // maybe try the decal fade time instead of startime?
                     PatchDecals(codes, i, sb);                                                      // why does the renderer break
                     LogStringBuilder(sb);
                 }
@@ -196,39 +289,80 @@ namespace ScorchedEarth
             }
         }
 
-        [HarmonyPatch(typeof(FootstepManager), "AddScorch")]
-        internal class PatchAddScorch
-        {
-            static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
-            {
-                var codes = new List<CodeInstruction>(instructions);
-                var sb = new StringBuilder();
-                //FileLog.Reset();
-                sb.Append($"{Environment.NewLine}");
-                sb.Append($"AddScorch IL{Environment.NewLine}");
-                ListTheStack(sb, codes);
-
-                for (int i = 0; i < 11; i++)
-                {
-                    codes[0].opcode = OpCodes.Nop;
-                    sb.Append($"Nop {i} - {codes[i].opcode}{Environment.NewLine}");
-                }
-
-                for (var i = 0; i < codes.Count(); i++)
-                {
-                    if (codes[i].operand == null)
-                    {
-                        continue;
-                    }
-              
-                    PatchDecals(codes, i, sb);
-                    LogStringBuilder(sb);
-                }
-
-                
-
-                return codes.AsEnumerable();
-            }
-        }
+      //[HarmonyPatch(typeof(FootstepManager), "AddScorch")]
+      //internal class PatchAddScorch
+      //{
+      //    #region Method IL
+            /*
+            AddScorch IL
+            ================================================================================
+            ldarg.0		
+            call		System.Collections.Generic.List`1[BattleTech.Rendering.FootstepManager+TerrainDecal] get_scorchList()
+            callvirt	Int32 get_Count()
+            ldsfld		System.Int32 maxDecals
+            blt		    System.Reflection.Emit.Label
+            ldc.i4.0		
+            ret		
+            ldarg.s		4
+            brfalse		System.Reflection.Emit.Label
+            ldc.r4		-1
+            br		    System.Reflection.Emit.Label
+            call		Single get_realtimeSinceStartup()
+            stloc.0		
+            ldarg.2		
+            call		Quaternion LookRotation(Vector3)
+            stloc.3		
+            ldloca.s	UnityEngine.Quaternion (3)
+            call		Vector3 get_eulerAngles()
+            ldfld		System.Single y
+            stloc.1		
+            ldc.r4		0
+            ldloc.1		
+            ldc.r4		0
+            call		Quaternion Euler(Single, Single, Single)
+            stloc.2		
+            ldarg.0		
+            call		System.Collections.Generic.List`1[BattleTech.Rendering.FootstepManager+TerrainDecal] get_scorchList()
+            ldarg.1		
+            ldloc.2		
+            ldarg.3		
+            ldloc.0		
+            newobj		Void .ctor(Vector3, Quaternion, Vector3, Single)
+            callvirt	Void Add(BattleTech.Rendering.FootstepManager+TerrainDecal)
+            ldc.i4.1		
+            ret		
+            ================================================================================
+            */
+            #endregion
+      //
+      //    static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
+      //    {
+      //        var codes = new List<CodeInstruction>(instructions);
+      //        var sb = new StringBuilder();
+      //        //FileLog.Reset();
+      //        sb.Append($"{Environment.NewLine}");
+      //        sb.Append($"AddScorch IL{Environment.NewLine}");
+      //        ListTheStack(sb, codes);
+      //
+      //        for (int i = 0; i < 11; i++)
+      //        {
+      //            codes[0].opcode = OpCodes.Nop;
+      //            sb.Append($"Nop {i} - {codes[i].opcode}{Environment.NewLine}");
+      //        }
+      //
+      //        for (var i = 0; i < codes.Count(); i++)
+      //        {
+      //            if (codes[i].operand == null)
+      //            {
+      //                continue;
+      //            }
+      //
+      //            PatchDecals(codes, i, sb);
+      //            LogStringBuilder(sb);
+      //        }
+      //
+      //        return codes.AsEnumerable();
+      //    }
+      //}
     }
 }
