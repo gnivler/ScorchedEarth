@@ -84,7 +84,7 @@ namespace ScorchedEarth
         //     }
         // }
 
-        internal static void ListTheStack(StringBuilder sb, List<CodeInstruction> codes)
+        private static void ListTheStack(StringBuilder sb, List<CodeInstruction> codes)
         {
             sb.Append(
                 $"================================================================================{Environment.NewLine}");
@@ -104,32 +104,60 @@ namespace ScorchedEarth
                 $"================================================================================{Environment.NewLine}");
         }
 
-        private static void PatchTime(List<CodeInstruction> codes, int i, StringBuilder sb)
+        private static void PatchTimeSinceStartup(List<CodeInstruction> codes, int i, StringBuilder sb)
         {
             if (codes[i].operand.ToString().Contains("get_realtimeSinceStartup"))
             {
                 sb.Append($"FOUND {codes[i].operand}.  ");
 
                 codes[i].opcode = OpCodes.Ldc_R4;
-                codes[i].operand = -1f / 2;
+                codes[i].operand = -1f;
 
                 sb.Append($"Changed to {codes[i].opcode}\t\t{codes[i].operand}{Environment.NewLine}");
             }
         }
 
-        internal static void PatchDecals(List<CodeInstruction> codes, int i, StringBuilder sb)
+        private static void PatchDecalLife(List<CodeInstruction> codes, int i, StringBuilder sb)
+        {
+            if (codes[i].operand.ToString().Contains("footstepLife"))  // this is used for scorches as well
+            {
+                sb.Append($"FOUND {codes[i].operand}.  ");
+
+                codes[i].opcode = OpCodes.Ldc_R4;
+                codes[i].operand = float.MaxValue;
+
+                sb.Append($"Changed to {codes[i].opcode}\t\t{codes[i].operand}{Environment.NewLine}");
+            }
+        }
+
+        private static void PatchDecals(List<CodeInstruction> codes, int i, StringBuilder sb)
         {
             if (codes[i].opcode == OpCodes.Ldsfld &&
                 codes[i].operand.ToString().Contains("maxDecals"))
             {
                 sb.Append($"{Environment.NewLine}FOUND {codes[i].operand}.  ");
 
+                var decals = 10000;
                 codes[i].opcode = OpCodes.Ldc_I4;
-                codes[i].operand = 256;
+                codes[i].operand = decals;
 
-                sb.Append($"Changed to {codes[i].opcode}\t 256{Environment.NewLine}");
+                sb.Append($"Changed to {codes[i].opcode}\t {decals}{Environment.NewLine}");
             }
+        }
 
+        private static void PatchJumpIntoAddScorch(List<CodeInstruction> codes, int i, StringBuilder sb)
+        {
+            if (codes[i].opcode == OpCodes.Ldsfld &&
+                codes[i].operand.ToString().Contains("maxDecals"))
+            {
+                sb.Append($"{Environment.NewLine}FOUND {codes[i].operand}.  ");
+
+                var decals = 10000;
+                codes[i].opcode = OpCodes.Ldc_I4;
+                codes[i].operand = decals;
+
+                sb.Append($"Changed to {codes[i].opcode}\t {decals}{Environment.NewLine}");
+            }
         }
 
         private static void LogStringBuilder(StringBuilder sb)
@@ -159,9 +187,8 @@ namespace ScorchedEarth
                     {
                         continue;
                     }
-
-                    PatchTime(codes, i, sb);
-                    PatchDecals(codes, i, sb);
+                    PatchDecalLife(codes, i, sb);                                                        // maybe try the decal fade time instead of startime?
+                    PatchDecals(codes, i, sb);                                                      // why does the renderer break
                     LogStringBuilder(sb);
                 }
 
@@ -181,17 +208,24 @@ namespace ScorchedEarth
                 sb.Append($"AddScorch IL{Environment.NewLine}");
                 ListTheStack(sb, codes);
 
+                for (int i = 0; i < 11; i++)
+                {
+                    codes[0].opcode = OpCodes.Nop;
+                    sb.Append($"Nop {i} - {codes[i].opcode}{Environment.NewLine}");
+                }
+
                 for (var i = 0; i < codes.Count(); i++)
                 {
                     if (codes[i].operand == null)
                     {
                         continue;
                     }
-
-                    PatchTime(codes, i, sb);
+              
                     PatchDecals(codes, i, sb);
                     LogStringBuilder(sb);
                 }
+
+                
 
                 return codes.AsEnumerable();
             }
