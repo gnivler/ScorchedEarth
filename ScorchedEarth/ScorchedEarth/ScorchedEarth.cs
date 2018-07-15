@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Reflection.Emit;
 using System.Text;
 using BattleTech.Rendering;
+using BattleTech.UI;
 using Harmony;
 
 namespace ScorchedEarth
@@ -19,21 +20,6 @@ namespace ScorchedEarth
             harmony.PatchAll(Assembly.GetExecutingAssembly());
         }
 
-        [HarmonyPatch(typeof(FootstepManager))]
-        [HarmonyPatch("footstepList", PropertyMethod.Getter)]
-        static class FootstepManager_footstepList_Patch
-        {
-            static void Prefix(FootstepManager __instance)
-            {
-                var instance = Traverse.Create(__instance);
-                var _footstepList = instance.Field("_footstepList");
-                if (_footstepList.GetValue() == null)
-                {
-                    Type variableType = typeof(List<>).MakeGenericType(new Type[] { AccessTools.Inner(typeof(FootstepManager), "TerrainDecal") });
-                    _footstepList.SetValue(Activator.CreateInstance(variableType, new object[] { ScorchedEarth.DECALS }));
-                }
-            }
-        }
 
         private static void ListTheStack(StringBuilder sb, List<CodeInstruction> codes)
         {
@@ -195,6 +181,73 @@ namespace ScorchedEarth
             }
         }
 
+        [HarmonyPatch(typeof(FootstepManager))]
+        [HarmonyPatch("footstepList", PropertyMethod.Getter)]
+        static class FootstepManager_footstepList_Patch
+        {
+            static void Prefix(FootstepManager __instance)
+            {
+                var instance = Traverse.Create(__instance);
+                var _footstepList = instance.Field("_footstepList");
+                if (_footstepList.GetValue() == null)
+                {
+                    Type variableType = typeof(List<>).MakeGenericType(new Type[] { AccessTools.Inner(typeof(FootstepManager), "TerrainDecal") });
+                    _footstepList.SetValue(Activator.CreateInstance(variableType, new object[] { ScorchedEarth.DECALS }));
+                }
+            }
+        }
+
+        //strategy:  intercept calls to realtimeSinceStartup to make things practically infinite
+        //           intercept calls for the only int32 on TerrainDecal (MaxDecals) and make it a high value
+        [HarmonyPatch(typeof(FootstepManager), "ProcessFootsteps")]
+        public class PatchProcessFootsteps
+        {
+
+            static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
+            {
+                var sb = new StringBuilder();
+                var codes = new List<CodeInstruction>(instructions);
+
+                sb.Append($"{Environment.NewLine}");
+                sb.Append($"ProcessFootsteps IL{Environment.NewLine}");
+
+                for (var i = 0; i < codes.Count(); i++)
+                {
+                    if (codes[i].operand == null)
+                    {
+                        continue;
+                    }
+                    if (codes[i].operand.ToString().Contains("get_realtimeSinceStartup"))
+                    {
+                        sb.Append($"FOUND {codes[i].operand}.  ");
+
+                        codes[i].opcode = OpCodes.Ldc_R4;
+                        codes[i].operand = float.MinValue;
+
+                        sb.Append($"Changed to {codes[i].opcode}\t\t{codes[i].operand}{Environment.NewLine}");
+                    }
+
+                    if (codes[i].operand == null)
+                    {
+                        continue;
+                    }
+                    if (codes[i].opcode == OpCodes.Ldsfld &&
+                        codes[i].operand.ToString().Contains("maxDecals"))
+                    {
+                        sb.Append($"{Environment.NewLine}FOUND {codes[i].operand}.  ");
+
+                        codes[i].opcode = OpCodes.Ldc_I4;
+                        codes[i].operand = 255;
+
+                        sb.Append($"Changed to {codes[i].opcode}\t 255{Environment.NewLine}");
+                    }
+                    ListTheStack(sb, codes);
+                    LogStringBuilder(sb);
+                }
+                return codes.AsEnumerable();
+            }
+        }
+
         [HarmonyPatch(typeof(FootstepManager), "ProcessScorches")]
         public class PatchProcessScorches
         {
@@ -313,11 +366,7 @@ namespace ScorchedEarth
                     TransDecalCount(codes, i, sb);
                 }
                 ListTheStack(sb, codes);
-                if (sb.Length > 0)
-                {
-                    FileLog.Log(sb.ToString());
-                    sb.Remove(0, sb.Length);
-                }
+                LogStringBuilder(sb);
 
                 return codes.AsEnumerable();
             }
@@ -346,11 +395,7 @@ namespace ScorchedEarth
                     TransPlayImpactPersistent(codes, i, sb, ref y);
                 }
                 ListTheStack(sb, codes);
-                if (sb.Length > 0)
-                {
-                    FileLog.Log(sb.ToString());
-                    sb.Remove(0, sb.Length);
-                }
+                LogStringBuilder(sb);
 
                 return codes.AsEnumerable();
             }
