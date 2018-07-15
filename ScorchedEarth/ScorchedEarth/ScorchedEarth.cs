@@ -4,10 +4,8 @@ using System.Linq;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Text;
-using BattleTech;
 using BattleTech.Rendering;
 using Harmony;
-using Org.BouncyCastle.Crypto.Parameters;
 
 namespace ScorchedEarth
 {
@@ -105,20 +103,76 @@ namespace ScorchedEarth
                 $"================================================================================{Environment.NewLine}");
         }
 
-        private static void PatchTimeSinceStartup(List<CodeInstruction> codes, int i, StringBuilder sb)
+        private static void LogStringBuilder(StringBuilder sb)
+        {
+            if (sb.Length > 0)
+            {
+                FileLog.Log(sb.ToString());
+                sb.Remove(0, sb.Length);
+            }
+        }
+
+        private static void TransTimeSinceStartup(List<CodeInstruction> codes, int i, StringBuilder sb)
         {
             if (codes[i].operand.ToString().Contains("get_realtimeSinceStartup"))
             {
                 sb.Append($"FOUND {codes[i].operand}.  ");
 
                 codes[i].opcode = OpCodes.Ldc_R4;
-                codes[i].operand = -1f;
+                codes[i].operand = float.MinValue;
 
                 sb.Append($"Changed to {codes[i].opcode}\t\t{codes[i].operand}{Environment.NewLine}");
             }
         }
 
-        private static void PatchDecalLife(List<CodeInstruction> codes, int i, StringBuilder sb)
+        private static void TransDecalCount(List<CodeInstruction> codes, int i, StringBuilder sb)
+        {
+            if (codes[i].opcode == OpCodes.Ldsfld &&
+                codes[i].operand.ToString().Contains("maxDecals"))
+            {
+                sb.Append($"{Environment.NewLine}FOUND {codes[i].operand}.  ");
+
+                var decals = 10000;
+                codes[i].opcode = OpCodes.Ldc_I4;
+                codes[i].operand = decals;
+
+                sb.Append($"Changed to {codes[i].opcode}\t {decals}{Environment.NewLine}");
+            }
+        }
+
+        private static void TransScorchStartTime(List<CodeInstruction> codes, int i, StringBuilder sb, ref int y, ref int z)
+        {
+            if (codes[i].opcode == OpCodes.Callvirt &&
+                codes[i].operand.ToString().Contains("get_startTime"))
+            {
+                if (y == 0)
+                {
+                    y++;
+                    sb.Append($"{Environment.NewLine}FOUND {codes[i].operand}.  ");
+
+                    codes[i].opcode = OpCodes.Ldc_R4;
+                    codes[i].operand = -1f; // this is coded to mean persistent decals.......
+
+                    sb.Append($"Changed to {codes[i].opcode}\t\t{codes[i].operand}{Environment.NewLine}");
+                }
+            }/*
+            else if (codes[i].opcode == OpCodes.Ldc_R4 &&
+                     codes[i].operand.ToString() == "0")
+            {
+                z++;
+                if (z == 2)  // the 3rd occurence only at     this.scorchAlphas[index] = Mathf.SmoothStep(0.0f, 1f, 1f - num1);
+                {
+                    sb.Append($"{Environment.NewLine}FOUND {codes[i].operand}.  ");
+
+                    codes[i].opcode = OpCodes.Ldc_R4;
+                    codes[i].operand = 1f;
+
+                    sb.Append($"Changed to {codes[i].opcode}\t\t{codes[i].operand}{Environment.NewLine}");
+                }
+            }*/
+        }
+
+        private static void TransDecalLife(List<CodeInstruction> codes, int i, StringBuilder sb)
         {
             if (codes[i].operand.ToString().Contains("footstepLife"))  // this is used for scorches as well
             {
@@ -131,7 +185,7 @@ namespace ScorchedEarth
             }
         }
 
-        private static void PatchDecalFadeTime(List<CodeInstruction> codes, int i, StringBuilder sb, ref bool flag)
+        private static void TransDecalFadeTime(List<CodeInstruction> codes, int i, StringBuilder sb, ref bool flag)
         {
             if (codes[i].opcode == OpCodes.Ldsfld &&
                 codes[i].operand.ToString().Contains("decalFadeTime"))
@@ -159,7 +213,7 @@ namespace ScorchedEarth
             }
         }
 
-        private static void PatchDecalCount(List<CodeInstruction> codes, int i, StringBuilder sb)
+        private static void TransJumpIntoAddScorch(List<CodeInstruction> codes, int i, StringBuilder sb)
         {
             if (codes[i].opcode == OpCodes.Ldsfld &&
                 codes[i].operand.ToString().Contains("maxDecals"))
@@ -172,61 +226,21 @@ namespace ScorchedEarth
 
                 sb.Append($"Changed to {codes[i].opcode}\t {decals}{Environment.NewLine}");
             }
-        }
+        }  // not sure how to jump (what's the operand?)
 
-        private static void PatchJumpIntoAddScorch(List<CodeInstruction> codes, int i, StringBuilder sb)
+        private static void TransPlayImpactPersistent(List<CodeInstruction> codes, int i, StringBuilder sb, ref int y)
         {
-            if (codes[i].opcode == OpCodes.Ldsfld &&
-                codes[i].operand.ToString().Contains("maxDecals"))
+            if (codes[i].opcode == OpCodes.Ldc_I4_0)
             {
-                sb.Append($"{Environment.NewLine}FOUND {codes[i].operand}.  ");
-
-                var decals = 10000;
-                codes[i].opcode = OpCodes.Ldc_I4;
-                codes[i].operand = decals;
-
-                sb.Append($"Changed to {codes[i].opcode}\t {decals}{Environment.NewLine}");
-            }
-        }
-
-        private static void PatchScorchStartTime(List<CodeInstruction> codes, int i, StringBuilder sb, ref int y, ref int z)
-        {
-            if (codes[i].opcode == OpCodes.Callvirt &&
-                codes[i].operand.ToString().Contains("get_startTime"))
-            {
-                if (y == 0)
+                if (y == 3) // 4th instance only
                 {
-                    y++;
-                    sb.Append($"{Environment.NewLine}FOUND {codes[i].operand}.  ");
+                    sb.Append($"{Environment.NewLine}FOUND {codes[i].opcode}.  ");
 
-                    codes[i].opcode = OpCodes.Ldc_R4;
-                    codes[i].operand = -1f; // this is coded to mean persistent decals.......
+                    codes[i].opcode = OpCodes.Ldc_I4_1;
 
-                    sb.Append($"Changed to {codes[i].opcode}\t\t{codes[i].operand}{Environment.NewLine}");
+                    sb.Append($"Changed to {codes[i].opcode}\t{codes[i].operand}{Environment.NewLine}");
                 }
-            }
-            else if (codes[i].opcode == OpCodes.Ldc_R4 &&
-                     codes[i].operand.ToString() == "0")
-            {
-                z++;
-                if (z == 2)  // the 3rd occurence only at     this.scorchAlphas[index] = Mathf.SmoothStep(0.0f, 1f, 1f - num1);
-                {
-                    sb.Append($"{Environment.NewLine}FOUND {codes[i].operand}.  ");
-
-                    codes[i].opcode = OpCodes.Ldc_R4;
-                    codes[i].operand = 1f;
-
-                    sb.Append($"Changed to {codes[i].opcode}\t\t{codes[i].operand}{Environment.NewLine}");
-                }
-            }
-        }
-
-        private static void LogStringBuilder(StringBuilder sb)
-        {
-            if (sb.Length > 0)
-            {
-                FileLog.Log(sb.ToString());
-                sb.Remove(0, sb.Length);
+                y++;
             }
         }
 
@@ -234,6 +248,7 @@ namespace ScorchedEarth
         public class PatchProcessScorches
         {
             #region Method IL
+
             /*
             ProcessScorches IL
             ================================================================================
@@ -324,19 +339,17 @@ namespace ScorchedEarth
             call		UnityEngine.Matrix4x4[] get_scorchTRS()
             ret		
             ================================================================================*/
+
             #endregion
 
             static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
             {
                 var codes = new List<CodeInstruction>(instructions);
                 var sb = new StringBuilder();
-                var y = 0;
-                var z = 0;
+                int y = 0;
 
-                //FileLog.Reset();
                 sb.Append($"{Environment.NewLine}");
                 sb.Append($"ProcessScorches IL{Environment.NewLine}");
-                ListTheStack(sb, codes);
 
                 for (var i = 0; i < codes.Count(); i++)
                 {
@@ -344,16 +357,55 @@ namespace ScorchedEarth
                     {
                         continue;
                     }
-                    PatchScorchStartTime(codes, i, sb, ref y, ref z);                                                
-                    PatchDecalCount(codes, i, sb);                                                          
-                    LogStringBuilder(sb);
+
+                    TransTimeSinceStartup(codes, i, sb);
+                    TransDecalCount(codes, i, sb);
+                }
+                ListTheStack(sb, codes);
+                if (sb.Length > 0)
+                {
+                    FileLog.Log(sb.ToString());
+                    sb.Remove(0, sb.Length);
                 }
 
                 return codes.AsEnumerable();
             }
-
-
         }
+
+
+        [HarmonyPatch(typeof(MissileEffect), "PlayImpact")]
+        public class PatchPlayImpact
+        {
+            static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
+            {
+                var codes = new List<CodeInstruction>(instructions);
+                var sb = new StringBuilder();
+                var y = 0;
+
+                sb.Append($"{Environment.NewLine}");
+                sb.Append($"PlayImpact IL{Environment.NewLine}");
+
+                for (var i = 0; i < codes.Count(); i++)
+                {
+                    if (codes[i].operand == null)
+                    {
+                        continue;
+                    }
+
+                    TransPlayImpactPersistent(codes, i, sb, ref y);
+
+                }
+                ListTheStack(sb, codes);
+                if (sb.Length > 0)
+                {
+                    FileLog.Log(sb.ToString());
+                    sb.Remove(0, sb.Length);
+                }
+
+                return codes.AsEnumerable();
+            }
+        }
+
 
         //[HarmonyPatch(typeof(FootstepManager), "AddScorch")]
         //internal class PatchAddScorch
