@@ -364,7 +364,7 @@ namespace ScorchedEarth
                 ListTheStack(sb, codes);
                 if (sb.Length > 0)
                 {
-                    FileLog.Log(sb.ToString());
+                    //FileLog.Log(sb.ToString());
                     sb.Remove(0, sb.Length);
                 }
 
@@ -398,7 +398,7 @@ namespace ScorchedEarth
                 ListTheStack(sb, codes);
                 if (sb.Length > 0)
                 {
-                    FileLog.Log(sb.ToString());
+                    //FileLog.Log(sb.ToString());
                     sb.Remove(0, sb.Length);
                 }
 
