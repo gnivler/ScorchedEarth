@@ -11,77 +11,29 @@ namespace ScorchedEarth
 {
     public class ScorchedEarth
     {
+        public const int DECALS = 10000;
+
         public static void Init(string directory, string settingsJson)
         {
             var harmony = HarmonyInstance.Create("ca.gnivler.ScorchedEarth");
             harmony.PatchAll(Assembly.GetExecutingAssembly());
         }
 
-        // strategy:  intercept calls to realtimeSinceStartup to make things practically infinite
-        //            intercept calls for the only int32 on TerrainDecal (MaxDecals) and make it a high value
-        // [HarmonyPatch(typeof(FootstepManager), "ProcessFootsteps")]
-        // public class PatchProcessFootsteps
-        // {
-        //
-        //     static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
-        //     {
-        //         var sb = new StringBuilder();
-        //         var codes = new List<CodeInstruction>(instructions);
-        //
-        //         sb.Append($"{DateTime.Now.ToLongTimeString()} ScorchedEarth logfile{Environment.NewLine}");
-        //         sb.Append($"ProcessFootsteps IL{Environment.NewLine}");
-        //         sb.Append($"================================================================================{Environment.NewLine}");
-        //         for (var i = 0; i < codes.Count(); i++)
-        //         {
-        //             sb.Append($"{codes[i].opcode}\t\t");
-        //             if (codes[i].operand != null)
-        //             {
-        //                 sb.Append($"{codes[i].operand}");
-        //             }
-        //             sb.Append($"{Environment.NewLine}");
-        //         }
-        //         sb.Append($"================================================================================{Environment.NewLine}");
-        //
-        //         for (var i = 0; i < codes.Count(); i++)
-        //         {
-        //             if (codes[i].operand == null)
-        //             {
-        //                 continue;
-        //             }
-        //             if (codes[i].operand.ToString().Contains("get_realtimeSinceStartup"))
-        //             {
-        //                 sb.Append($"FOUND {codes[i].operand}.  ");
-        //
-        //                 codes[i].opcode = OpCodes.Ldc_R4;
-        //                 codes[i].operand = float.MinValue;
-        //
-        //                 sb.Append($"Changed to {codes[i].opcode}\t\t{codes[i].operand}{Environment.NewLine}");
-        //             }
-        //
-        //             if (codes[i].operand == null)
-        //             {
-        //                 continue;
-        //             } 
-        //             if (codes[i].opcode == OpCodes.Ldsfld &&
-        //                 codes[i].operand.ToString().Contains("maxDecals"))
-        //             {
-        //                 sb.Append($"{Environment.NewLine}FOUND {codes[i].operand}.  ");
-        //
-        //                 codes[i].opcode = OpCodes.Ldc_I4;
-        //                 codes[i].operand = 255;
-        //
-        //                 sb.Append($"Changed to {codes[i].opcode}\t 255{Environment.NewLine}");
-        //             }
-        //
-        //             if (sb.Length > 0)
-        //             {
-        //                 FileLog.Log(sb.ToString());
-        //                 sb.Remove(0, sb.Length);
-        //             }
-        //         }
-        //         return codes.AsEnumerable();
-        //     }
-        // }
+        [HarmonyPatch(typeof(FootstepManager))]
+        [HarmonyPatch("footstepList", PropertyMethod.Getter)]
+        static class FootstepManager_footstepList_Patch
+        {
+            static void Prefix(FootstepManager __instance)
+            {
+                var instance = Traverse.Create(__instance);
+                var _footstepList = instance.Field("_footstepList");
+                if (_footstepList.GetValue() == null)
+                {
+                    Type variableType = typeof(List<>).MakeGenericType(new Type[] { AccessTools.Inner(typeof(FootstepManager), "TerrainDecal") });
+                    _footstepList.SetValue(Activator.CreateInstance(variableType, new object[] { ScorchedEarth.DECALS }));
+                }
+            }
+        }
 
         private static void ListTheStack(StringBuilder sb, List<CodeInstruction> codes)
         {
@@ -132,11 +84,10 @@ namespace ScorchedEarth
             {
                 sb.Append($"{Environment.NewLine}FOUND {codes[i].operand}.  ");
 
-                var decals = 10000;
                 codes[i].opcode = OpCodes.Ldc_I4;
-                codes[i].operand = decals;
+                codes[i].operand = DECALS;
 
-                sb.Append($"Changed to {codes[i].opcode}\t {decals}{Environment.NewLine}");
+                sb.Append($"Changed to {codes[i].opcode}\t {DECALS}{Environment.NewLine}");
             }
         }
 
@@ -364,7 +315,7 @@ namespace ScorchedEarth
                 ListTheStack(sb, codes);
                 if (sb.Length > 0)
                 {
-                    //FileLog.Log(sb.ToString());
+                    FileLog.Log(sb.ToString());
                     sb.Remove(0, sb.Length);
                 }
 
@@ -393,94 +344,16 @@ namespace ScorchedEarth
                     }
 
                     TransPlayImpactPersistent(codes, i, sb, ref y);
-
                 }
                 ListTheStack(sb, codes);
                 if (sb.Length > 0)
                 {
-                    //FileLog.Log(sb.ToString());
+                    FileLog.Log(sb.ToString());
                     sb.Remove(0, sb.Length);
                 }
 
                 return codes.AsEnumerable();
             }
         }
-
-
-        //[HarmonyPatch(typeof(FootstepManager), "AddScorch")]
-        //internal class PatchAddScorch
-        //{
-        #region Method IL
-        /*
-        AddScorch IL
-        ================================================================================
-        ldarg.0		
-        call		System.Collections.Generic.List`1[BattleTech.Rendering.FootstepManager+TerrainDecal] get_scorchList()
-        callvirt	Int32 get_Count()
-        ldsfld		System.Int32 maxDecals
-        blt		    System.Reflection.Emit.Label
-        ldc.i4.0		
-        ret		
-        ldarg.s		4
-        brfalse		System.Reflection.Emit.Label
-        ldc.r4		-1
-        br		    System.Reflection.Emit.Label
-        call		Single get_realtimeSinceStartup()
-        stloc.0		
-        ldarg.2		
-        call		Quaternion LookRotation(Vector3)
-        stloc.3		
-        ldloca.s	UnityEngine.Quaternion (3)
-        call		Vector3 get_eulerAngles()
-        ldfld		System.Single y
-        stloc.1		
-        ldc.r4		0
-        ldloc.1		
-        ldc.r4		0
-        call		Quaternion Euler(Single, Single, Single)
-        stloc.2		
-        ldarg.0		
-        call		System.Collections.Generic.List`1[BattleTech.Rendering.FootstepManager+TerrainDecal] get_scorchList()
-        ldarg.1		
-        ldloc.2		
-        ldarg.3		
-        ldloc.0		
-        newobj		Void .ctor(Vector3, Quaternion, Vector3, Single)
-        callvirt	Void Add(BattleTech.Rendering.FootstepManager+TerrainDecal)
-        ldc.i4.1		
-        ret		
-        ================================================================================
-        */
-        #endregion
-        //
-        //    static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
-        //    {
-        //        var codes = new List<CodeInstruction>(instructions);
-        //        var sb = new StringBuilder();
-        //        //FileLog.Reset();
-        //        sb.Append($"{Environment.NewLine}");
-        //        sb.Append($"AddScorch IL{Environment.NewLine}");
-        //        ListTheStack(sb, codes);
-        //
-        //        for (int i = 0; i < 11; i++)
-        //        {
-        //            codes[0].opcode = OpCodes.Nop;
-        //            sb.Append($"Nop {i} - {codes[i].opcode}{Environment.NewLine}");
-        //        }
-        //
-        //        for (var i = 0; i < codes.Count(); i++)
-        //        {
-        //            if (codes[i].operand == null)
-        //            {
-        //                continue;
-        //            }
-        //
-        //            PatchDecals(codes, i, sb);
-        //            LogStringBuilder(sb);
-        //        }
-        //
-        //        return codes.AsEnumerable();
-        //    }
-        //}
     }
 }
