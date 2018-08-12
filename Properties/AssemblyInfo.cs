@@ -8,8 +8,9 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyDescription("")]
 [assembly: AssemblyConfiguration("")]
 [assembly: AssemblyCompany("")]
-[assembly: AssemblyProduct("ScorchedEarth")]
-[assembly: AssemblyCopyright("Copyright ©  2018")] [assembly: AssemblyTrademark("")]
+[assembly: AssemblyProduct("com.gnivler.ScorchedEarth")]
+[assembly: AssemblyCopyright("Unlicense")]
+[assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]
 
 // Setting ComVisible to false makes the types in this assembly not visible
