@@ -5,7 +5,7 @@ namespace PanicSystem
 {
     public static class Logger
     {
-        private static string LogFilePath => $"{PanicSystem.ModDirectory}/log.txt";
+        private static string LogFilePath => $"Mods/ScorchedEarth/log.txt";
         public static void Error(Exception ex)
         {
             using (var writer = new StreamWriter(LogFilePath, true))
@@ -17,7 +17,7 @@ namespace PanicSystem
 
         public static void Debug(string line)
         {
-            if (!PanicSystem.ModSettings.Debug) return;
+            //if (!ModSettings.Debug) return;
             using (var writer = new StreamWriter(LogFilePath, true))
             {
                 writer.WriteLine(line);

@@ -13,6 +13,7 @@ namespace ScorchedEarth
     public class ScorchedEarth
     {
         public const int DECALS = 1023;
+        public static string ModName = "ScorchedEarth";
 
         public static void Init(string directory, string settingsJson)
         {
@@ -24,9 +25,7 @@ namespace ScorchedEarth
 
         private static void ListTheStack(StringBuilder sb, List<CodeInstruction> codes)
         {
-            sb.Append(
-                $"================================================================================{Environment.NewLine}");
-
+            sb.Append(new string(c: '=', count: 80) + "\n");
             for (var i = 0; i < codes.Count(); i++)
             {
                 sb.Append($"{codes[i].opcode}\t\t");
@@ -35,11 +34,9 @@ namespace ScorchedEarth
                     sb.Append($"{codes[i].operand}");
                 }
 
-                sb.Append($"{Environment.NewLine}");
+                sb.Append($"\n");
             }
-
-            sb.Append(
-                $"================================================================================{Environment.NewLine}");
+            sb.Append(new string(c: '=', count: 80) + "\n");
         }
 
         private static void LogStringBuilder(StringBuilder sb)
@@ -60,7 +57,7 @@ namespace ScorchedEarth
                 codes[i].opcode = OpCodes.Ldc_R4;
                 codes[i].operand = float.MinValue;
 
-                sb.Append($"Changed to {codes[i].opcode}\t\t{codes[i].operand}{Environment.NewLine}");
+                sb.Append($"Changed to {codes[i].opcode}\t\t{codes[i].operand}\n");
             }
         }
 
@@ -69,12 +66,12 @@ namespace ScorchedEarth
             if (codes[i].opcode == OpCodes.Ldsfld &&
                 codes[i].operand.ToString().Contains("maxDecals"))
             {
-                sb.Append($"{Environment.NewLine}FOUND {codes[i].operand}.  ");
+                sb.Append($"\nFOUND {codes[i].operand}.  ");
 
                 codes[i].opcode = OpCodes.Ldc_I4;
                 codes[i].operand = DECALS;
 
-                sb.Append($"Changed to {codes[i].opcode}\t {DECALS}{Environment.NewLine}");
+                sb.Append($"Changed to {codes[i].opcode}\t {DECALS}\n");
             }
         }
 
@@ -86,12 +83,12 @@ namespace ScorchedEarth
                 if (y == 0)
                 {
                     y++;
-                    sb.Append($"{Environment.NewLine}FOUND {codes[i].operand}.  ");
+                    sb.Append($"\nFOUND {codes[i].operand}.  ");
 
                     codes[i].opcode = OpCodes.Ldc_R4;
                     codes[i].operand = -1f; // this is coded to mean persistent decals.......
 
-                    sb.Append($"Changed to {codes[i].opcode}\t\t{codes[i].operand}{Environment.NewLine}");
+                    sb.Append($"Changed to {codes[i].opcode}\t\t{codes[i].operand}\n");
                 }
             }/*
             else if (codes[i].opcode == OpCodes.Ldc_R4 &&
@@ -100,12 +97,12 @@ namespace ScorchedEarth
                 z++;
                 if (z == 2)  // the 3rd occurence only at     this.scorchAlphas[index] = Mathf.SmoothStep(0.0f, 1f, 1f - num1);
                 {
-                    sb.Append($"{Environment.NewLine}FOUND {codes[i].operand}.  ");
+                    sb.Append($"\nFOUND {codes[i].operand}.  ");
 
                     codes[i].opcode = OpCodes.Ldc_R4;
                     codes[i].operand = 1f;
 
-                    sb.Append($"Changed to {codes[i].opcode}\t\t{codes[i].operand}{Environment.NewLine}");
+                    sb.Append($"Changed to {codes[i].opcode}\t\t{codes[i].operand}\n");
                 }
             }*/
         }
@@ -119,7 +116,7 @@ namespace ScorchedEarth
                 codes[i].opcode = OpCodes.Ldc_R4;
                 codes[i].operand = float.MaxValue;
 
-                sb.Append($"Changed to {codes[i].opcode}\t\t{codes[i].operand}{Environment.NewLine}");
+                sb.Append($"Changed to {codes[i].opcode}\t\t{codes[i].operand}\n");
             }
         }
 
@@ -135,7 +132,7 @@ namespace ScorchedEarth
                     codes[i].opcode = OpCodes.Ldc_R4;
                     codes[i].operand = -10000f;
 
-                    sb.Append($"Changed to {codes[i].opcode}\t\t{codes[i].operand}{Environment.NewLine}");
+                    sb.Append($"Changed to {codes[i].opcode}\t\t{codes[i].operand}\n");
                 }
                 else
                 {
@@ -144,7 +141,7 @@ namespace ScorchedEarth
 
                         codes[i].opcode = OpCodes.Ldc_R4;
                         codes[i].operand = 1f;
-                        sb.Append($"Changed to {codes[i].opcode}\t\t{codes[i].operand}{Environment.NewLine}");
+                        sb.Append($"Changed to {codes[i].opcode}\t\t{codes[i].operand}\n");
 
                     }
                 }
@@ -156,13 +153,13 @@ namespace ScorchedEarth
             if (codes[i].opcode == OpCodes.Ldsfld &&
                 codes[i].operand.ToString().Contains("maxDecals"))
             {
-                sb.Append($"{Environment.NewLine}FOUND {codes[i].operand}.  ");
+                sb.Append($"\nFOUND {codes[i].operand}.  ");
 
                 var decals = 10000;
                 codes[i].opcode = OpCodes.Ldc_I4;
                 codes[i].operand = decals;
 
-                sb.Append($"Changed to {codes[i].opcode}\t {decals}{Environment.NewLine}");
+                sb.Append($"Changed to {codes[i].opcode}\t {decals}\n");
             }
         }  // not sure how to jump (what's the operand?)
 
@@ -172,11 +169,11 @@ namespace ScorchedEarth
             {
                 if (y == 3) // 4th instance only
                 {
-                    sb.Append($"{Environment.NewLine}FOUND {codes[i].opcode}.  ");
+                    sb.Append($"\nFOUND {codes[i].opcode}.  ");
 
                     codes[i].opcode = OpCodes.Ldc_I4_1;
 
-                    sb.Append($"Changed to {codes[i].opcode}\t{codes[i].operand}{Environment.NewLine}");
+                    sb.Append($"Changed to {codes[i].opcode}\t{codes[i].operand}\n");
                 }
                 y++;
             }
@@ -209,8 +206,8 @@ namespace ScorchedEarth
                 var sb = new StringBuilder();
                 var codes = new List<CodeInstruction>(instructions);
 
-                sb.Append($"{Environment.NewLine}");
-                sb.Append($"ProcessFootsteps IL{Environment.NewLine}");
+                sb.Append($"\n");
+                sb.Append($"ProcessFootsteps IL\n");
 
                 for (var i = 0; i < codes.Count(); i++)
                 {
@@ -225,7 +222,7 @@ namespace ScorchedEarth
                         codes[i].opcode = OpCodes.Ldc_R4;
                         codes[i].operand = float.MinValue;
 
-                        sb.Append($"Changed to {codes[i].opcode}\t\t{codes[i].operand}{Environment.NewLine}");
+                        sb.Append($"Changed to {codes[i].opcode}\t\t{codes[i].operand}\n");
                     }
 
                     if (codes[i].operand == null)
@@ -235,12 +232,12 @@ namespace ScorchedEarth
                     if (codes[i].opcode == OpCodes.Ldsfld &&
                         codes[i].operand.ToString().Contains("maxDecals"))
                     {
-                        sb.Append($"{Environment.NewLine}FOUND {codes[i].operand}.  ");
+                        sb.Append($"\nFOUND {codes[i].operand}.  ");
 
                         codes[i].opcode = OpCodes.Ldc_I4;
                         codes[i].operand = 255;
 
-                        sb.Append($"Changed to {codes[i].opcode}\t 255{Environment.NewLine}");
+                        sb.Append($"Changed to {codes[i].opcode}\t 255\n");
                     }
                     ListTheStack(sb, codes);
                     LogStringBuilder(sb);
@@ -353,8 +350,8 @@ namespace ScorchedEarth
                 var sb = new StringBuilder();
                 int y = 0;
 
-                sb.Append($"{Environment.NewLine}");
-                sb.Append($"ProcessScorches IL{Environment.NewLine}");
+                sb.Append($"\n");
+                sb.Append($"ProcessScorches IL\n");
 
                 for (var i = 0; i < codes.Count(); i++)
                 {
@@ -383,8 +380,8 @@ namespace ScorchedEarth
                 var sb = new StringBuilder();
                 var y = 0;
 
-                sb.Append($"{Environment.NewLine}");
-                sb.Append($"PlayImpact IL{Environment.NewLine}");
+                sb.Append($"\n");
+                sb.Append($"PlayImpact IL\n");
 
                 for (var i = 0; i < codes.Count(); i++)
                 {
