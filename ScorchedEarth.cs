@@ -15,7 +15,7 @@ namespace ScorchedEarth
     {
         public const int DECALS = 125;
         public static string ModDirectory;
-        public static bool EnableDebug = true;
+        public static bool EnableDebug = false;
 
         public static void Init(string directory, string settingsJson)
         {
@@ -93,6 +93,28 @@ namespace ScorchedEarth
                 }
             }
         }
+
+        [HarmonyPatch(typeof(FootstepManager), nameof(FootstepManager.AddFootstep))]
+        public static class PatchAddFootstep
+        {
+            public static void Prefix(FootstepManager __instance)
+            {
+                if (__instance.footstepList.Count == FootstepManager.maxDecals)
+                {
+                    __instance.footstepList.RemoveAt(0);
+                    Debug("footstepList element 0 removed");
+                }
+                
+                
+            }
+            
+            public static void Postfix(FootstepManager __instance)
+            {
+                Debug($"footstepList is {__instance.footstepList.Count}/{__instance.footstepList.Capacity} (max: {FootstepManager.maxDecals})");
+            }
+
+        }
+
         // draws scorches without logic checks, also providing FIFO by removing the first scorch element as needed
         [HarmonyPatch(typeof(FootstepManager), nameof(FootstepManager.AddScorch))]
         public static class PatchAddScorch
@@ -101,9 +123,8 @@ namespace ScorchedEarth
             {
                 if (__instance.scorchList.Count == FootstepManager.maxDecals)
                 {
-                    //Debug("AddScorch Prefix");
                     __instance.scorchList.RemoveAt(0);
-                    Debug("element 0 removed");
+                    Debug("scorchList element 0 removed");
                 }
             }
 
