@@ -1,11 +1,12 @@
 ﻿using System;
 using System.IO;
+using static ScorchedEarth.ScorchedEarth;
 
-namespace PanicSystem
+namespace ScorchedEarth
 {
     public static class Logger
     {
-        private static string LogFilePath => $"Mods/ScorchedEarth/log.txt";
+        private static string LogFilePath => $"{ModDirectory}/log.txt";
         public static void Error(Exception ex)
         {
             using (var writer = new StreamWriter(LogFilePath, true))
@@ -17,7 +18,7 @@ namespace PanicSystem
 
         public static void Debug(string line)
         {
-            //if (!ModSettings.Debug) return;
+            if (!EnableDebug) return;
             using (var writer = new StreamWriter(LogFilePath, true))
             {
                 writer.WriteLine(line);

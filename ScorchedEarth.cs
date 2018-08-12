@@ -1,30 +1,36 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Text;
+using BattleTech;
 using BattleTech.Rendering;
-using BattleTech.UI;
 using Harmony;
+using UnityEngine;
+using static ScorchedEarth.Logger;
 
 namespace ScorchedEarth
 {
     public class ScorchedEarth
     {
         public const int DECALS = 1023;
-        public static string ModName = "ScorchedEarth";
+        public static string ModDirectory;
+        public static readonly bool EnableDebug = false;
 
-        public static void Init(string directory, string settingsJson)
+        public static void Init(string directory)
         {
             var harmony = HarmonyInstance.Create("ca.gnivler.ScorchedEarth");
             harmony.PatchAll(Assembly.GetExecutingAssembly());
-            AccessTools.Field(typeof(FootstepManager), nameof(FootstepManager.maxDecals)).SetValue(null, DECALS);
+            ModDirectory = directory;
+            if (EnableDebug)
+            {
+                Clear();
+            }
         }
 
-
-        private static void ListTheStack(StringBuilder sb, List<CodeInstruction> codes)
+        private static void ListTheStack(List<CodeInstruction> codes)
         {
+            var sb = new StringBuilder();
             sb.Append(new string(c: '=', count: 80) + "\n");
             for (var i = 0; i < codes.Count(); i++)
             {
@@ -36,366 +42,65 @@ namespace ScorchedEarth
 
                 sb.Append($"\n");
             }
+
             sb.Append(new string(c: '=', count: 80) + "\n");
+            FileLog.Log(sb.ToString());
         }
 
-        private static void LogStringBuilder(StringBuilder sb)
+        [HarmonyPatch(typeof(CombatGameState), nameof(CombatGameState.Update))]
+        public static class PatchCgsUpdate
         {
-            if (sb.Length > 0)
+            public static void Prefix()
             {
-                FileLog.Log(sb.ToString());
-                sb.Remove(0, sb.Length);
-            }
-        }
-
-        private static void TransTimeSinceStartup(List<CodeInstruction> codes, int i, StringBuilder sb)
-        {
-            if (codes[i].operand.ToString().Contains("get_realtimeSinceStartup"))
-            {
-                sb.Append($"FOUND {codes[i].operand}.  ");
-
-                codes[i].opcode = OpCodes.Ldc_R4;
-                codes[i].operand = float.MinValue;
-
-                sb.Append($"Changed to {codes[i].opcode}\t\t{codes[i].operand}\n");
-            }
-        }
-
-        private static void TransDecalCount(List<CodeInstruction> codes, int i, StringBuilder sb)
-        {
-            if (codes[i].opcode == OpCodes.Ldsfld &&
-                codes[i].operand.ToString().Contains("maxDecals"))
-            {
-                sb.Append($"\nFOUND {codes[i].operand}.  ");
-
-                codes[i].opcode = OpCodes.Ldc_I4;
-                codes[i].operand = DECALS;
-
-                sb.Append($"Changed to {codes[i].opcode}\t {DECALS}\n");
-            }
-        }
-
-        private static void TransScorchStartTime(List<CodeInstruction> codes, int i, StringBuilder sb, ref int y, ref int z)
-        {
-            if (codes[i].opcode == OpCodes.Callvirt &&
-                codes[i].operand.ToString().Contains("get_startTime"))
-            {
-                if (y == 0)
+                if (EnableDebug)
                 {
-                    y++;
-                    sb.Append($"\nFOUND {codes[i].operand}.  ");
-
-                    codes[i].opcode = OpCodes.Ldc_R4;
-                    codes[i].operand = -1f; // this is coded to mean persistent decals.......
-
-                    sb.Append($"Changed to {codes[i].opcode}\t\t{codes[i].operand}\n");
-                }
-            }/*
-            else if (codes[i].opcode == OpCodes.Ldc_R4 &&
-                     codes[i].operand.ToString() == "0")
-            {
-                z++;
-                if (z == 2)  // the 3rd occurence only at     this.scorchAlphas[index] = Mathf.SmoothStep(0.0f, 1f, 1f - num1);
-                {
-                    sb.Append($"\nFOUND {codes[i].operand}.  ");
-
-                    codes[i].opcode = OpCodes.Ldc_R4;
-                    codes[i].operand = 1f;
-
-                    sb.Append($"Changed to {codes[i].opcode}\t\t{codes[i].operand}\n");
-                }
-            }*/
-        }
-
-        private static void TransDecalLife(List<CodeInstruction> codes, int i, StringBuilder sb)
-        {
-            if (codes[i].operand.ToString().Contains("footstepLife"))  // this is used for scorches as well
-            {
-                sb.Append($"FOUND {codes[i].operand}.  ");
-
-                codes[i].opcode = OpCodes.Ldc_R4;
-                codes[i].operand = float.MaxValue;
-
-                sb.Append($"Changed to {codes[i].opcode}\t\t{codes[i].operand}\n");
-            }
-        }
-
-        private static void TransDecalFadeTime(List<CodeInstruction> codes, int i, StringBuilder sb, ref bool flag)
-        {
-            if (codes[i].opcode == OpCodes.Ldsfld &&
-                codes[i].operand.ToString().Contains("decalFadeTime"))
-            {
-                if (!flag)
-                {
-                    sb.Append($"FOUND FIRST {codes[i].operand}.  ");
-
-                    codes[i].opcode = OpCodes.Ldc_R4;
-                    codes[i].operand = -10000f;
-
-                    sb.Append($"Changed to {codes[i].opcode}\t\t{codes[i].operand}\n");
-                }
-                else
-                {
-                    {
-                        sb.Append($"FOUND SECOND {codes[i].operand}.  ");
-
-                        codes[i].opcode = OpCodes.Ldc_R4;
-                        codes[i].operand = 1f;
-                        sb.Append($"Changed to {codes[i].opcode}\t\t{codes[i].operand}\n");
-
-                    }
+                    UnityEngine.Debug.developerConsoleVisible = false;
                 }
             }
         }
 
-        private static void TransJumpIntoAddScorch(List<CodeInstruction> codes, int i, StringBuilder sb)
+        [HarmonyPatch(typeof(FootstepManager), nameof(FootstepManager.AddScorch))]
+        public static class AddScorchPatch
         {
-            if (codes[i].opcode == OpCodes.Ldsfld &&
-                codes[i].operand.ToString().Contains("maxDecals"))
+            public static void Prefix(FootstepManager __instance)
             {
-                sb.Append($"\nFOUND {codes[i].operand}.  ");
-
-                var decals = 10000;
-                codes[i].opcode = OpCodes.Ldc_I4;
-                codes[i].operand = decals;
-
-                sb.Append($"Changed to {codes[i].opcode}\t {decals}\n");
-            }
-        }  // not sure how to jump (what's the operand?)
-
-        private static void TransPlayImpactPersistent(List<CodeInstruction> codes, int i, StringBuilder sb, ref int y)
-        {
-            if (codes[i].opcode == OpCodes.Ldc_I4_0)
-            {
-                if (y == 3) // 4th instance only
+                Debug("AddScorch Prefix");
+                if (__instance.scorchList.Count == FootstepManager.maxDecals)
                 {
-                    sb.Append($"\nFOUND {codes[i].opcode}.  ");
-
-                    codes[i].opcode = OpCodes.Ldc_I4_1;
-
-                    sb.Append($"Changed to {codes[i].opcode}\t{codes[i].operand}\n");
-                }
-                y++;
-            }
-        }
-
-        [HarmonyPatch(typeof(FootstepManager))]
-        [HarmonyPatch("footstepList", PropertyMethod.Getter)]
-        static class FootstepManager_footstepList_Patch
-        {
-            static void Prefix(FootstepManager __instance)
-            {
-                var instance = Traverse.Create(__instance);
-                var _footstepList = instance.Field("_footstepList");
-                if (_footstepList.GetValue() == null)
-                {
-                    Type variableType = typeof(List<>).MakeGenericType(new Type[] { AccessTools.Inner(typeof(FootstepManager), "TerrainDecal") });
-                    _footstepList.SetValue(Activator.CreateInstance(variableType, new object[] { ScorchedEarth.DECALS }));
+                    __instance.scorchList.RemoveAt(0);
+                    Debug("element 0 removed");
                 }
             }
-        }
 
-        //strategy:  intercept calls to realtimeSinceStartup to make things practically infinite
-        //           intercept calls for the only int32 on TerrainDecal (MaxDecals) and make it a high value
-        [HarmonyPatch(typeof(FootstepManager), "ProcessFootsteps")]
-        public class PatchProcessFootsteps
-        {
-
-            static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
+            public static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
             {
-                var sb = new StringBuilder();
                 var codes = new List<CodeInstruction>(instructions);
 
-                sb.Append($"\n");
-                sb.Append($"ProcessFootsteps IL\n");
-
-                for (var i = 0; i < codes.Count(); i++)
+                // nop 7 leading codes to skip count checks
+                for (int i = 0; i < 7; i++)
                 {
-                    if (codes[i].operand == null)
-                    {
-                        continue;
-                    }
-                    if (codes[i].operand.ToString().Contains("get_realtimeSinceStartup"))
-                    {
-                        sb.Append($"FOUND {codes[i].operand}.  ");
-
-                        codes[i].opcode = OpCodes.Ldc_R4;
-                        codes[i].operand = float.MinValue;
-
-                        sb.Append($"Changed to {codes[i].opcode}\t\t{codes[i].operand}\n");
-                    }
-
-                    if (codes[i].operand == null)
-                    {
-                        continue;
-                    }
-                    if (codes[i].opcode == OpCodes.Ldsfld &&
-                        codes[i].operand.ToString().Contains("maxDecals"))
-                    {
-                        sb.Append($"\nFOUND {codes[i].operand}.  ");
-
-                        codes[i].opcode = OpCodes.Ldc_I4;
-                        codes[i].operand = 255;
-
-                        sb.Append($"Changed to {codes[i].opcode}\t 255\n");
-                    }
-                    ListTheStack(sb, codes);
-                    LogStringBuilder(sb);
+                    codes[i].opcode = OpCodes.Nop;
                 }
+
+                //ListTheStack(codes);
                 return codes.AsEnumerable();
             }
-        }
 
-        [HarmonyPatch(typeof(FootstepManager), "ProcessScorches")]
-        public class PatchProcessScorches
-        {
-            #region Method IL
-
-            /*
-            ProcessScorches IL
-            ================================================================================
-            call		Single get_realtimeSinceStartup()
-            stloc.0		
-            ldc.i4.0		
-            stloc.1		
-            br		    System.Reflection.Emit.Label
-            ldarg.0		
-            call		System.Collections.Generic.List`1[BattleTech.Rendering.FootstepManager+TerrainDecal] get_scorchList()
-            ldloc.1		
-            callvirt	BattleTech.Rendering.FootstepManager+TerrainDecal get_Item(Int32)
-            stloc.2		
-            ldc.r4		0
-            stloc.3		
-            ldloc.2		
-            callvirt	Single get_startTime()
-            ldc.r4		-1
-            beq 		System.Reflection.Emit.Label
-            ldloc.0		
-            ldloc.2		
-            callvirt	Single get_startTime()
-            sub		
-            ldsfld		System.Single scorchLife
-            bgt.un		System.Reflection.Emit.Label
-            ldloc.2		
-            callvirt	Single get_startTime()
-            ldsfld		System.Single footstepLife
-            add		
-            ldsfld		System.Single decalFadeTime
-            sub		
-            stloc.s		System.Single (4)
-            ldloc.0		
-            ldloc.s		System.Single (4)
-            sub		
-            ldsfld		System.Single decalFadeTime
-            div		
-            stloc.3		
-            br	    	System.Reflection.Emit.Label
-            ldarg.0		
-            call		System.Collections.Generic.List`1[BattleTech.Rendering.FootstepManager+TerrainDecal] get_scorchList()
-            ldloc.1		
-            callvirt	Void RemoveAt(Int32)
-            ldloc.1		
-            ldc.i4.1		
-            sub		
-            stloc.1		
-            ldloc.1		
-            ldc.i4.1		
-            add		
-            stloc.1		
-            br		    System.Reflection.Emit.Label
-            ldarg.0		
-            call		System.Single[] get_scorchAlphas()
-            ldloc.1		
-            ldc.r4		0
-            ldc.r4		1
-            ldc.r4		1
-            ldloc.3		
-            sub		
-            call		Single SmoothStep(Single, Single, Single)
-            stelem.r4		
-            ldarg.0		
-            call		UnityEngine.Matrix4x4[] get_scorchTRS()
-            ldloc.1		
-            ldloc.2		
-            callvirt	Matrix4x4 get_transformMatrix()
-            stelem		UnityEngine.Matrix4x4
-            br		    System.Reflection.Emit.Label
-            ldloc.1		
-            ldarg.0		
-            call		System.Collections.Generic.List`1[BattleTech.Rendering.FootstepManager+TerrainDecal] get_scorchList()
-            callvirt	Int32 get_Count()
-            bge 		System.Reflection.Emit.Label
-            ldloc.1		
-            ldsfld		System.Int32 maxDecals
-            blt	    	System.Reflection.Emit.Label
-            ldstr		_BT_ScorchAlpha
-            ldarg.0		
-            call		System.Single[] get_scorchAlphas()
-            call		Void SetGlobalFloatArray(System.String, System.Single[])
-            ldarg.1		
-            ldarg.0		
-            call		System.Collections.Generic.List`1[BattleTech.Rendering.FootstepManager+TerrainDecal] get_scorchList()
-            callvirt	Int32 get_Count()
-            stind.i4		
-            ldarg.0		
-            call		UnityEngine.Matrix4x4[] get_scorchTRS()
-            ret		
-            ================================================================================*/
-
-            #endregion
-
-            static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
+            public static void Postfix(FootstepManager __instance)
             {
-                var codes = new List<CodeInstruction>(instructions);
-                var sb = new StringBuilder();
-                int y = 0;
-
-                sb.Append($"\n");
-                sb.Append($"ProcessScorches IL\n");
-
-                for (var i = 0; i < codes.Count(); i++)
-                {
-                    if (codes[i].operand == null)
-                    {
-                        continue;
-                    }
-
-                    TransTimeSinceStartup(codes, i, sb);
-                    TransDecalCount(codes, i, sb);
-                }
-                ListTheStack(sb, codes);
-                LogStringBuilder(sb);
-
-                return codes.AsEnumerable();
+                Debug($"scorchList is {__instance.scorchList.Count}/{__instance.scorchList.Capacity}");
             }
-        }
 
-
-        [HarmonyPatch(typeof(MissileEffect), "PlayImpact")]
-        public class PatchPlayImpact
-        {
-            static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
+            [HarmonyPatch(typeof(FootstepManager.TerrainDecal))]
+            [HarmonyPatch(new[] {typeof(Vector3), typeof(Quaternion), typeof(Vector3), typeof(float)})]
+            public static class Patch_TerrainDecalCtor
             {
-                var codes = new List<CodeInstruction>(instructions);
-                var sb = new StringBuilder();
-                var y = 0;
-
-                sb.Append($"\n");
-                sb.Append($"PlayImpact IL\n");
-
-                for (var i = 0; i < codes.Count(); i++)
+                public static bool Prefix(FootstepManager.TerrainDecal __instance, Vector3 position, Quaternion rotation, Vector3 scale)
                 {
-                    if (codes[i].operand == null)
-                    {
-                        continue;
-                    }
-
-                    TransPlayImpactPersistent(codes, i, sb, ref y);
+                    __instance.transformMatrix = Matrix4x4.TRS(position, rotation, scale);
+                    __instance.startTime = float.MaxValue;
+                    return false;
                 }
-                ListTheStack(sb, codes);
-                LogStringBuilder(sb);
-
-                return codes.AsEnumerable();
             }
         }
     }
