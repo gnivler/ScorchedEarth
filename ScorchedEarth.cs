@@ -15,9 +15,9 @@ namespace ScorchedEarth
     {
         public const int DECALS = 1023;
         public static string ModDirectory;
-        public static bool EnableDebug = false;
+        public static readonly bool EnableDebug = false;
 
-        public static void Init(string directory, string settingsJson)
+        public static void Init(string directory)
         {
             var harmony = HarmonyInstance.Create("ca.gnivler.ScorchedEarth");
             harmony.PatchAll(Assembly.GetExecutingAssembly());
@@ -64,17 +64,11 @@ namespace ScorchedEarth
         {
             public static void Prefix(FootstepManager __instance)
             {
+                Debug("AddScorch Prefix");
                 if (__instance.scorchList.Count == FootstepManager.maxDecals)
                 {
-                    Debug("AddScorch Prefix");
-                    Debug($"at 0 is {__instance.scorchList[0].transformMatrix}");
-                    Debug($"at 124 is {__instance.scorchList[124].transformMatrix}");
-
                     __instance.scorchList.RemoveAt(0);
-
                     Debug("element 0 removed");
-                    Debug($"at 0 is {__instance.scorchList[0].transformMatrix}");
-                    Debug($"at 124 is {__instance.scorchList[124].transformMatrix}");
                 }
             }
 
@@ -94,10 +88,7 @@ namespace ScorchedEarth
 
             public static void Postfix(FootstepManager __instance)
             {
-                Debug("AddScorch Postfix");
                 Debug($"scorchList is {__instance.scorchList.Count}/{__instance.scorchList.Capacity}");
-                Debug($"at 0 is {__instance.scorchList[0].transformMatrix}");
-                Debug($"at 124 is {__instance.scorchList[124].transformMatrix}");
             }
 
             [HarmonyPatch(typeof(FootstepManager.TerrainDecal))]
