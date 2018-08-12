@@ -13,11 +13,11 @@ namespace ScorchedEarth
 {
     public class ScorchedEarth
     {
-        public const int DECALS = 1023;
+        public const int DECALS = 125;
         public static string ModDirectory;
-        public static readonly bool EnableDebug = false;
+        public static bool EnableDebug = true;
 
-        public static void Init(string directory)
+        public static void Init(string directory, string settingsJson)
         {
             var harmony = HarmonyInstance.Create("ca.gnivler.ScorchedEarth");
             harmony.PatchAll(Assembly.GetExecutingAssembly());
@@ -26,8 +26,11 @@ namespace ScorchedEarth
             {
                 Clear();
             }
+
+            AccessTools.Field(typeof(FootstepManager), nameof(FootstepManager.maxDecals)).SetValue(null, DECALS);
         }
 
+        // only useful to dump method IL
         private static void ListTheStack(List<CodeInstruction> codes)
         {
             var sb = new StringBuilder();
@@ -47,26 +50,58 @@ namespace ScorchedEarth
             FileLog.Log(sb.ToString());
         }
 
-        [HarmonyPatch(typeof(CombatGameState), nameof(CombatGameState.Update))]
-        public static class PatchCgsUpdate
+        
+        // every TerrainDecal will have a time property that makes all comparisons practically infinite
+        [HarmonyPatch(typeof(FootstepManager.TerrainDecal))]
+        [HarmonyPatch(new[] {typeof(Vector3), typeof(Quaternion), typeof(Vector3), typeof(float)})]
+        public static class PatchTerrainDecalCtor
         {
-            public static void Prefix()
+            public static bool Prefix(FootstepManager.TerrainDecal __instance, Vector3 position, Quaternion rotation, Vector3 scale)
             {
-                if (EnableDebug)
-                {
-                    UnityEngine.Debug.developerConsoleVisible = false;
-                }
+                __instance.transformMatrix = Matrix4x4.TRS(position, rotation, scale);
+                __instance.startTime = float.MaxValue;
+                return false;
+            }
+        }
+        
+        // patch the property which is supposed to return 125 or 500 for OpenGL.  Testing with -force-opengl resulted in at least 1023 decals, though
+        // fires constantly
+        [HarmonyPatch(typeof(BTDecal.DecalController))]
+        [HarmonyPatch("MaxInstances", PropertyMethod.Getter)]
+        public static class PatchMaxInstances
+        {
+            public static bool Prefix(ref int __result)
+            {
+                //Debug($"MaxInstances returning {DECALS}");
+                __result = DECALS;
+                return false;
             }
         }
 
+        // trying to verify that the value going into the game is correct when it should be (apparently yes but it doesn't work)
+        [HarmonyPatch(typeof(BTDecal.DecalController), nameof(BTDecal.DecalController.ProcessCommandBuffer))]
+        public static class PatchProcessCommandBuffer
+        {
+            private static bool said;
+
+            public static void Prefix()
+            {
+                if (!said)
+                {
+                    Debug($"ProcessCommandBuffer says max is {BTDecal.DecalController.MaxInstances}");
+                    said = true;
+                }
+            }
+        }
+        // draws scorches without logic checks, also providing FIFO by removing the first scorch element as needed
         [HarmonyPatch(typeof(FootstepManager), nameof(FootstepManager.AddScorch))]
-        public static class AddScorchPatch
+        public static class PatchAddScorch
         {
             public static void Prefix(FootstepManager __instance)
             {
-                Debug("AddScorch Prefix");
                 if (__instance.scorchList.Count == FootstepManager.maxDecals)
                 {
+                    //Debug("AddScorch Prefix");
                     __instance.scorchList.RemoveAt(0);
                     Debug("element 0 removed");
                 }
@@ -88,18 +123,19 @@ namespace ScorchedEarth
 
             public static void Postfix(FootstepManager __instance)
             {
-                Debug($"scorchList is {__instance.scorchList.Count}/{__instance.scorchList.Capacity}");
+                Debug($"scorchList is {__instance.scorchList.Count}/{__instance.scorchList.Capacity} (max: {FootstepManager.maxDecals})");
             }
-
-            [HarmonyPatch(typeof(FootstepManager.TerrainDecal))]
-            [HarmonyPatch(new[] {typeof(Vector3), typeof(Quaternion), typeof(Vector3), typeof(float)})]
-            public static class Patch_TerrainDecalCtor
+        }
+        
+        // only when dev build is running
+        [HarmonyPatch(typeof(CombatGameState), nameof(CombatGameState.Update))]
+        public static class PatchCgsUpdate
+        {
+            public static void Prefix()
             {
-                public static bool Prefix(FootstepManager.TerrainDecal __instance, Vector3 position, Quaternion rotation, Vector3 scale)
+                if (EnableDebug)
                 {
-                    __instance.transformMatrix = Matrix4x4.TRS(position, rotation, scale);
-                    __instance.startTime = float.MaxValue;
-                    return false;
+                    UnityEngine.Debug.developerConsoleVisible = false;
                 }
             }
         }
