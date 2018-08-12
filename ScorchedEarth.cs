@@ -62,21 +62,21 @@ namespace ScorchedEarth
         [HarmonyPatch(typeof(FootstepManager), nameof(FootstepManager.AddScorch))]
         public static class AddScorchPatch
         {
-          //  public static void Prefix(FootstepManager __instance)
-          //  {
-          //      if (__instance.scorchList.Count == FootstepManager.maxDecals)
-          //      {
-          //          Debug("AddScorch Prefix");
-          //          Debug($"at 0 is {__instance.scorchList[0].transformMatrix}");
-          //          Debug($"at 124 is {__instance.scorchList[124].transformMatrix}");
-//
-          //          __instance.scorchList.RemoveRange(0, 10);
-//
-          //          Debug("element 0 removed");
-          //          Debug($"at 0 is {__instance.scorchList[0].transformMatrix}");
-          //          Debug($"at 124 is {__instance.scorchList[124].transformMatrix}");
-          //      }
-          //  }
+            public static void Prefix(FootstepManager __instance)
+            {
+                if (__instance.scorchList.Count == FootstepManager.maxDecals)
+                {
+                    Debug("AddScorch Prefix");
+                    Debug($"at 0 is {__instance.scorchList[0].transformMatrix}");
+                    Debug($"at 124 is {__instance.scorchList[124].transformMatrix}");
+                      
+                    __instance.scorchList.RemoveAt(3);
+                        
+                    Debug("element 0 removed");
+                    Debug($"at 0 is {__instance.scorchList[0].transformMatrix}");
+                    Debug($"at 124 is {__instance.scorchList[124].transformMatrix}");
+                }
+            }
 
             public static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
             {
@@ -102,40 +102,15 @@ namespace ScorchedEarth
         }
 
         [HarmonyPatch(typeof(FootstepManager.TerrainDecal))]
-        public static class PatchTerrainDecal
+        [HarmonyPatch(new[] {typeof(Vector3), typeof(Quaternion), typeof(Vector3), typeof(float)})]
+        public static class Patch_TerrainDecalCtor
         {
-            public static bool Prefix(Vector3 position, Quaternion rotation, Vector3 scale, FootstepManager.TerrainDecal __instance)
+            public static bool Prefix(FootstepManager.TerrainDecal __instance, Vector3 position, Quaternion rotation, Vector3 scale)
             {
                 __instance.transformMatrix = Matrix4x4.TRS(position, rotation, scale);
                 __instance.startTime = float.MaxValue;
                 return false;
             }
         }
-
-/*
-        // lynchping patch that makes scorches permanent by an unused boolean flag in the assembly
-        [HarmonyPatch(typeof(MissileEffect), nameof(MissileEffect.PlayImpact))]
-        public class PatchPlayImpact
-        {
-            public static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
-            {
-                FileLog.Log("PlayImpact Transpiler Harmony");
-                var codes = new List<CodeInstruction>(instructions);
-                var sb = new StringBuilder();
-
-                for (var i = 0; i < codes.Count(); i++)
-                {
-                    if (codes[i].opcode == OpCodes.Ldc_I4_0)
-                        if (codes[i + 1].opcode == OpCodes.Callvirt)
-                        {
-                            sb.Append("should only have one match for calling addScorch - 0 to 1\n");
-                            codes[i].opcode = OpCodes.Ldc_I4_1;
-                        }
-                }
-
-                return codes.AsEnumerable();
-            }
-        }
-*/
     }
 }
