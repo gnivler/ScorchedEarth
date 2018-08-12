@@ -69,9 +69,9 @@ namespace ScorchedEarth
                     Debug("AddScorch Prefix");
                     Debug($"at 0 is {__instance.scorchList[0].transformMatrix}");
                     Debug($"at 124 is {__instance.scorchList[124].transformMatrix}");
-                      
-                    __instance.scorchList.RemoveAt(3);
-                        
+
+                    __instance.scorchList.RemoveAt(0);
+
                     Debug("element 0 removed");
                     Debug($"at 0 is {__instance.scorchList[0].transformMatrix}");
                     Debug($"at 124 is {__instance.scorchList[124].transformMatrix}");
@@ -99,17 +99,17 @@ namespace ScorchedEarth
                 Debug($"at 0 is {__instance.scorchList[0].transformMatrix}");
                 Debug($"at 124 is {__instance.scorchList[124].transformMatrix}");
             }
-        }
 
-        [HarmonyPatch(typeof(FootstepManager.TerrainDecal))]
-        [HarmonyPatch(new[] {typeof(Vector3), typeof(Quaternion), typeof(Vector3), typeof(float)})]
-        public static class Patch_TerrainDecalCtor
-        {
-            public static bool Prefix(FootstepManager.TerrainDecal __instance, Vector3 position, Quaternion rotation, Vector3 scale)
+            [HarmonyPatch(typeof(FootstepManager.TerrainDecal))]
+            [HarmonyPatch(new[] {typeof(Vector3), typeof(Quaternion), typeof(Vector3), typeof(float)})]
+            public static class Patch_TerrainDecalCtor
             {
-                __instance.transformMatrix = Matrix4x4.TRS(position, rotation, scale);
-                __instance.startTime = float.MaxValue;
-                return false;
+                public static bool Prefix(FootstepManager.TerrainDecal __instance, Vector3 position, Quaternion rotation, Vector3 scale)
+                {
+                    __instance.transformMatrix = Matrix4x4.TRS(position, rotation, scale);
+                    __instance.startTime = float.MaxValue;
+                    return false;
+                }
             }
         }
     }
