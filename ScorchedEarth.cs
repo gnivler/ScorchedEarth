@@ -50,7 +50,6 @@ namespace ScorchedEarth
             FileLog.Log(sb.ToString());
         }
 
-        
         // every TerrainDecal will have a time property that makes all comparisons practically infinite
         [HarmonyPatch(typeof(FootstepManager.TerrainDecal))]
         [HarmonyPatch(new[] {typeof(Vector3), typeof(Quaternion), typeof(Vector3), typeof(float)})]
@@ -63,7 +62,7 @@ namespace ScorchedEarth
                 return false;
             }
         }
-        
+
         // patch the property which is supposed to return 125 or 500 for OpenGL.  Testing with -force-opengl resulted in at least 1023 decals, though
         // fires constantly
         [HarmonyPatch(typeof(BTDecal.DecalController))]
@@ -93,6 +92,26 @@ namespace ScorchedEarth
                 }
             }
         }
+
+        // FIFO footsteps
+        [HarmonyPatch(typeof(FootstepManager), nameof(FootstepManager.AddFootstep))]
+        public static class PatchAddFootstep
+        {
+            public static void Prefix(FootstepManager __instance)
+            {
+                if (__instance.footstepList.Count == FootstepManager.maxDecals)
+                {
+                    __instance.footstepList.RemoveAt(0);
+                    Debug("footstepList element 0 removed");
+                }
+            }
+
+            public static void Postfix(FootstepManager __instance)
+            {
+                Debug($"footstepList is {__instance.footstepList.Count}/{__instance.footstepList.Capacity} (max: {FootstepManager.maxDecals})");
+            }
+        }
+
         // draws scorches without logic checks, also providing FIFO by removing the first scorch element as needed
         [HarmonyPatch(typeof(FootstepManager), nameof(FootstepManager.AddScorch))]
         public static class PatchAddScorch
@@ -101,9 +120,8 @@ namespace ScorchedEarth
             {
                 if (__instance.scorchList.Count == FootstepManager.maxDecals)
                 {
-                    //Debug("AddScorch Prefix");
                     __instance.scorchList.RemoveAt(0);
-                    Debug("element 0 removed");
+                    Debug("scorchList element 0 removed");
                 }
             }
 
@@ -126,7 +144,7 @@ namespace ScorchedEarth
                 Debug($"scorchList is {__instance.scorchList.Count}/{__instance.scorchList.Capacity} (max: {FootstepManager.maxDecals})");
             }
         }
-        
+
         // only when dev build is running
         [HarmonyPatch(typeof(CombatGameState), nameof(CombatGameState.Update))]
         public static class PatchCgsUpdate
