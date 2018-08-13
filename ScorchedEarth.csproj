@@ -55,6 +55,9 @@
     <Compile Include="ScorchedEarth.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
+  <ItemGroup>
+    <Content Include="Unlicense.txt" />
+  </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <PropertyGroup>
     <PostBuildEvent>copy /y $(TargetPath) N:\SteamLibrary\steamapps\common\BATTLETECH\Mods\ScorchedEarth</PostBuildEvent>
