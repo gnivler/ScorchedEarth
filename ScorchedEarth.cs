@@ -7,14 +7,16 @@ using BattleTech;
 using BattleTech.Rendering;
 using Harmony;
 using UnityEngine;
+using UnityEngine.Rendering;
 using static ScorchedEarth.Logger;
 
 namespace ScorchedEarth
 {
     public class ScorchedEarth
     {
-        public const int DECALS = 125;
+        public const int DECALS = 200;
         public static string ModDirectory;
+
         public static bool EnableDebug = true;
 
         public static void Init(string directory, string settingsJson)
@@ -27,7 +29,8 @@ namespace ScorchedEarth
                 Clear();
             }
 
-            AccessTools.Field(typeof(FootstepManager), nameof(FootstepManager.maxDecals)).SetValue(null, DECALS);
+            AccessTools.Field(typeof(FootstepManager), "maxDecals").SetValue(null, DECALS);
+            AccessTools.Field(typeof(Graphics), "kMaxDrawMeshInstanceCount").SetValue(null, DECALS);
         }
 
         // only useful to dump method IL
@@ -50,6 +53,30 @@ namespace ScorchedEarth
             FileLog.Log(sb.ToString());
         }
 
+        // this one is probably needed
+        [HarmonyPatch(typeof(CommandBuffer), "DrawMeshInstanced", new[] {typeof(Mesh), typeof(int), typeof(Material), typeof(int), typeof(Matrix4x4[]), typeof(int), typeof(MaterialPropertyBlock)})]
+        public static class PatchDrawMeshInstanced3
+        {
+            public static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
+            {
+                var codes = new List<CodeInstruction>(instructions);
+
+                for (int i = 0; i < codes.Count; i++)
+                {
+                    if (codes[i].operand == null) continue;
+                    if (codes[i].opcode == OpCodes.Call &&
+                        codes[i].operand.ToString().Contains("DrawMeshInstanced"))
+                    {
+                        codes[i - 2].opcode = OpCodes.Ldc_I4;
+                        codes[i - 2].operand = DECALS;
+                    }
+                }
+
+                ListTheStack(codes);
+                return codes.AsEnumerable();
+            }
+        }
+
         // every TerrainDecal will have a time property that makes all comparisons practically infinite
         [HarmonyPatch(typeof(FootstepManager.TerrainDecal))]
         [HarmonyPatch(new[] {typeof(Vector3), typeof(Quaternion), typeof(Vector3), typeof(float)})]
@@ -69,9 +96,16 @@ namespace ScorchedEarth
         [HarmonyPatch("MaxInstances", PropertyMethod.Getter)]
         public static class PatchMaxInstances
         {
+            private static bool said;
+
             public static bool Prefix(ref int __result)
             {
-                //Debug($"MaxInstances returning {DECALS}");
+                if (!said)
+                {
+                    said = true;
+                    Debug($"MaxInstances returning {DECALS}");
+                }
+
                 __result = DECALS;
                 return false;
             }
@@ -87,8 +121,8 @@ namespace ScorchedEarth
             {
                 if (!said)
                 {
-                    Debug($"ProcessCommandBuffer says max is {BTDecal.DecalController.MaxInstances}");
                     said = true;
+                    Debug($"ProcessCommandBuffer says max is {BTDecal.DecalController.MaxInstances}");
                 }
             }
         }
@@ -101,14 +135,21 @@ namespace ScorchedEarth
             {
                 if (__instance.footstepList.Count == FootstepManager.maxDecals)
                 {
-                    __instance.footstepList.RemoveAt(0);
-                    Debug("footstepList element 0 removed");
+                    try
+                    {
+                        __instance.footstepList.RemoveAt(0);
+                        Debug("footstepList element 0 removed");
+                    }
+                    catch // we don't need the exception
+                    {
+                        Debug("AddFootstep remove 0 failed");
+                    }
                 }
             }
 
             public static void Postfix(FootstepManager __instance)
             {
-                Debug($"footstepList is {__instance.footstepList.Count}/{__instance.footstepList.Capacity} (max: {FootstepManager.maxDecals})");
+                //Debug($"footstepList is {__instance.footstepList.Count}/{__instance.footstepList.Capacity}");
             }
         }
 
@@ -118,18 +159,26 @@ namespace ScorchedEarth
         {
             public static void Prefix(FootstepManager __instance)
             {
+                // FIFO logic
                 if (__instance.scorchList.Count == FootstepManager.maxDecals)
                 {
-                    __instance.scorchList.RemoveAt(0);
-                    Debug("scorchList element 0 removed");
+                    try
+                    {
+                        __instance.scorchList.RemoveAt(0);
+                        Debug("scorchList element 0 removed");
+                    }
+                    catch // we don't need the exception
+                    {
+                        Debug("AddScorch remove 0 failed");
+                    }
                 }
             }
 
+            // nop 7 leading codes to skip count checks
             public static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
             {
                 var codes = new List<CodeInstruction>(instructions);
 
-                // nop 7 leading codes to skip count checks
                 for (int i = 0; i < 7; i++)
                 {
                     codes[i].opcode = OpCodes.Nop;
@@ -139,23 +188,53 @@ namespace ScorchedEarth
                 return codes.AsEnumerable();
             }
 
+            // running status line
             public static void Postfix(FootstepManager __instance)
             {
-                Debug($"scorchList is {__instance.scorchList.Count}/{__instance.scorchList.Capacity} (max: {FootstepManager.maxDecals})");
+                Debug($"scorchList is {__instance.scorchList.Count}/{__instance.scorchList.Capacity}");
             }
         }
 
-        // only when dev build is running
-        [HarmonyPatch(typeof(CombatGameState), nameof(CombatGameState.Update))]
-        public static class PatchCgsUpdate
+        // attempt to prevent the game from being able to remove decals
+        [HarmonyPatch(typeof(BTDecal.DecalController), nameof(BTDecal.DecalController.RemoveDecal))]
+        public static class PatchRemoveDecal
         {
-            public static void Prefix()
+            public static bool Prefix(BTDecal __instance, ref bool __result)
             {
-                if (EnableDebug)
+                var decal = __instance;
+
+                List<BTDecal> btDecalList;
+                if (!BTDecal.DecalController.decalDict.TryGetValue(decal.decalMaterial, out btDecalList))
                 {
-                    UnityEngine.Debug.developerConsoleVisible = false;
+                    if (decal.decalMaterial.name != "Decals/ScorchMaterial") // only stop scorches removal
+                    {
+                        __result = false;
+                        btDecalList.Remove(decal);
+
+                        return false;
+                    }
+
+                    // make it think the decal was removed?
+                    __result = true;
                 }
+
+                return false;
             }
         }
+
+        // [HarmonyPatch(typeof(FootstepManager), nameof(FootstepManager.ProcessFootsteps))]
+        // public static class TestPatch
+        // {
+        //     public static void Prefix()
+        //     {
+        //         var typeName = "Battletech.Rendering.FootstepManager";
+        //         var doItType = Type.GetType(typeName);
+        //         var ctorMemberInfos = doItType.GetMember(".cctor", BindingFlags.CreateInstance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+        //         foreach (var memberInfo in ctorMemberInfos)
+        //         {
+        //             Debug($"memberInfo is {memberInfo}");
+        //         }
+        //     }
+        // }
     }
 }
