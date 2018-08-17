@@ -3,7 +3,6 @@ using System.Linq;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Text;
-using BattleTech;
 using BattleTech.Rendering;
 using Harmony;
 using UnityEngine;
@@ -14,10 +13,10 @@ namespace ScorchedEarth
 {
     public class ScorchedEarth
     {
-        public const int DECALS = 200;
+        public const int DECALS = 125;
         public static string ModDirectory;
 
-        public static bool EnableDebug = true;
+        public static bool EnableDebug = false;
 
         public static void Init(string directory, string settingsJson)
         {
@@ -53,7 +52,7 @@ namespace ScorchedEarth
             FileLog.Log(sb.ToString());
         }
 
-        // this one is probably needed
+        // this one is probably needed.. eventually
         [HarmonyPatch(typeof(CommandBuffer), "DrawMeshInstanced", new[] {typeof(Mesh), typeof(int), typeof(Material), typeof(int), typeof(Matrix4x4[]), typeof(int), typeof(MaterialPropertyBlock)})]
         public static class PatchDrawMeshInstanced3
         {
@@ -90,7 +89,7 @@ namespace ScorchedEarth
             }
         }
 
-        // patch the property which is supposed to return 125 or 500 for OpenGL.  Testing with -force-opengl resulted in at least 1023 decals, though
+        // patch the property which is supposed to return 125 or 500 for OpenGL.  Does nothing.  Testing with -force-opengl resulted in at least 1023 decals, though
         // fires constantly
         [HarmonyPatch(typeof(BTDecal.DecalController))]
         [HarmonyPatch("MaxInstances", PropertyMethod.Getter)]
@@ -119,11 +118,9 @@ namespace ScorchedEarth
 
             public static void Prefix()
             {
-                if (!said)
-                {
-                    said = true;
-                    Debug($"ProcessCommandBuffer says max is {BTDecal.DecalController.MaxInstances}");
-                }
+                if (said) return;
+                said = true;
+                Debug($"ProcessCommandBuffer says max is {BTDecal.DecalController.MaxInstances}");
             }
         }
 
@@ -133,23 +130,24 @@ namespace ScorchedEarth
         {
             public static void Prefix(FootstepManager __instance)
             {
-                if (__instance.footstepList.Count == FootstepManager.maxDecals)
+                try
                 {
-                    try
+                    if (__instance.footstepList.Count == FootstepManager.maxDecals)
                     {
                         __instance.footstepList.RemoveAt(0);
                         Debug("footstepList element 0 removed");
                     }
-                    catch // we don't need the exception
-                    {
-                        Debug("AddFootstep remove 0 failed");
-                    }
+                }
+                catch // we don't need the exception
+                {
+                    Debug("AddFootstep remove 0 failed");
                 }
             }
 
+            // running status line
             public static void Postfix(FootstepManager __instance)
             {
-                //Debug($"footstepList is {__instance.footstepList.Count}/{__instance.footstepList.Capacity}");
+                Debug($"footstepList is {__instance.footstepList.Count}/{__instance.footstepList.Capacity}");
             }
         }
 
@@ -160,81 +158,39 @@ namespace ScorchedEarth
             public static void Prefix(FootstepManager __instance)
             {
                 // FIFO logic
-                if (__instance.scorchList.Count == FootstepManager.maxDecals)
+                try
                 {
-                    try
+                    if (__instance.scorchList.Count == FootstepManager.maxDecals)
                     {
                         __instance.scorchList.RemoveAt(0);
                         Debug("scorchList element 0 removed");
                     }
-                    catch // we don't need the exception
-                    {
-                        Debug("AddScorch remove 0 failed");
-                    }
                 }
-            }
-
-            // nop 7 leading codes to skip count checks
-            public static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
-            {
-                var codes = new List<CodeInstruction>(instructions);
-
-                for (int i = 0; i < 7; i++)
+                catch // we don't need the exception
                 {
-                    codes[i].opcode = OpCodes.Nop;
+                    Debug("AddScorch remove 0 failed");
                 }
-
-                //ListTheStack(codes);
-                return codes.AsEnumerable();
-            }
-
-            // running status line
-            public static void Postfix(FootstepManager __instance)
-            {
-                Debug($"scorchList is {__instance.scorchList.Count}/{__instance.scorchList.Capacity}");
             }
         }
 
-        // attempt to prevent the game from being able to remove decals
-        [HarmonyPatch(typeof(BTDecal.DecalController), nameof(BTDecal.DecalController.RemoveDecal))]
-        public static class PatchRemoveDecal
+        // nop 7 leading codes to skip count checks
+        public static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
         {
-            public static bool Prefix(BTDecal __instance, ref bool __result)
+            var codes = new List<CodeInstruction>(instructions);
+
+            for (int i = 0; i < 7; i++)
             {
-                var decal = __instance;
-
-                List<BTDecal> btDecalList;
-                if (!BTDecal.DecalController.decalDict.TryGetValue(decal.decalMaterial, out btDecalList))
-                {
-                    if (decal.decalMaterial.name != "Decals/ScorchMaterial") // only stop scorches removal
-                    {
-                        __result = false;
-                        btDecalList.Remove(decal);
-
-                        return false;
-                    }
-
-                    // make it think the decal was removed?
-                    __result = true;
-                }
-
-                return false;
+                codes[i].opcode = OpCodes.Nop;
             }
+
+            //ListTheStack(codes);
+            return codes.AsEnumerable();
         }
 
-        // [HarmonyPatch(typeof(FootstepManager), nameof(FootstepManager.ProcessFootsteps))]
-        // public static class TestPatch
-        // {
-        //     public static void Prefix()
-        //     {
-        //         var typeName = "Battletech.Rendering.FootstepManager";
-        //         var doItType = Type.GetType(typeName);
-        //         var ctorMemberInfos = doItType.GetMember(".cctor", BindingFlags.CreateInstance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-        //         foreach (var memberInfo in ctorMemberInfos)
-        //         {
-        //             Debug($"memberInfo is {memberInfo}");
-        //         }
-        //     }
-        // }
+        // running status line
+        public static void Postfix(FootstepManager __instance)
+        {
+            Debug($"scorchList is {__instance.scorchList.Count}/{__instance.scorchList.Capacity}");
+        }
     }
 }
