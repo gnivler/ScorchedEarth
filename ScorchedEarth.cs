@@ -179,7 +179,7 @@ namespace ScorchedEarth
                     codes[i].opcode = OpCodes.Nop;
                 }
 
-                ListTheStack(codes);
+                //ListTheStack(codes);
                 return codes.AsEnumerable();
             }
 
