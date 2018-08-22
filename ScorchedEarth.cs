@@ -77,7 +77,7 @@ namespace ScorchedEarth
         //}
 
         // every TerrainDecal will have a time property that makes all comparisons practically infinite
-        [HarmonyPatch(typeof(FootstepManager.TerrainDecal))]
+        [HarmonyPatch(typeof(FootstepManager.TerrainDecal), MethodType.Constructor)]
         [HarmonyPatch(new[] {typeof(Vector3), typeof(Quaternion), typeof(Vector3), typeof(float)})]
         public static class PatchTerrainDecalCtor
         {
