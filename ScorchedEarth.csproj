@@ -60,6 +60,9 @@
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>
+    <Content Include="..\..\SteamLibrary\steamapps\common\BATTLETECH\Mods\ScorchedEarth\mod.json">
+      <Link>mod.json</Link>
+    </Content>
     <Content Include="Unlicense.txt" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

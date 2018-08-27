@@ -1,13 +1,18 @@
 ﻿using System;
 using System.IO;
+using System.Reflection;
+using Harmony;
 using static ScorchedEarth.ScorchedEarth;
 
 namespace ScorchedEarth
 {
     public static class Logger
     {
-        private static string LogFilePath => $"{ModDirectory}/log.txt";
-        public static void Error(Exception ex)
+        private static string LogFilePath => Path.Combine(ModDirectory, "log.txt");
+        private static readonly string Version = ((AssemblyFileVersionAttribute) Attribute.GetCustomAttribute(
+            Assembly.GetExecutingAssembly(), typeof(AssemblyFileVersionAttribute), false)).Version;
+
+        public static void LogError(Exception ex)
         {
             using (var writer = new StreamWriter(LogFilePath, true))
             {
@@ -16,20 +21,20 @@ namespace ScorchedEarth
             }
         }
 
-        public static void Debug(string line)
+        public static void LogDebug(string line)
         {
-            if (!EnableDebug) return;
+            if (!debug) return;
             using (var writer = new StreamWriter(LogFilePath, true))
             {
                 writer.WriteLine(line);
             }
         }
 
-        public static void Clear()
+        public static void LogClear()
         {
             using (var writer = new StreamWriter(LogFilePath, false))
             {
-                writer.WriteLine($"{DateTime.Now.ToLongTimeString()} Init");
+                writer.WriteLine($"{DateTime.Now.ToLongTimeString()} Scorched Earth v{Version}");
             }
         }
     }

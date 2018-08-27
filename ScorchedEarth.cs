@@ -2,12 +2,11 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
-using System.Reflection.Emit;
 using System.Text;
 using BattleTech.Rendering;
 using Harmony;
+using Newtonsoft.Json;
 using UnityEngine;
-using UnityEngine.Internal;
 using UnityEngine.Rendering;
 using static ScorchedEarth.Logger;
 using static ScorchedEarth.ScorchedEarth;
@@ -16,23 +15,71 @@ namespace ScorchedEarth
 {
     public class ScorchedEarth
     {
-        public const int DECALS = 1000;
-        public static string ModDirectory;
+        // distances greater than this will be filtered out
+        public const float DECALJITTER = 0.195f;
 
-        public static bool EnableDebug = false;
+        public static string ModDirectory;
+        public static Settings settings;
+        public static bool debug = true;
 
         public static void Init(string directory, string settingsJson)
         {
             var harmony = HarmonyInstance.Create("ca.gnivler.ScorchedEarth");
             harmony.PatchAll(Assembly.GetExecutingAssembly());
             ModDirectory = directory;
-            if (EnableDebug)
+            try
             {
-                Clear();
+                settings = JsonConvert.DeserializeObject<Settings>(settingsJson);
+            }
+            catch (Exception e)
+            {
+                LogError(e);
+                settings = new Settings();
             }
 
-            // maxDecals hits EVERYTHING (all* arrays sizes)
-            AccessTools.Field(typeof(FootstepManager), "maxDecals").SetValue(null, DECALS);
+            if (debug)
+            {
+                LogClear();
+            }
+
+            // maxDecals changes EVERYTHING (all* arrays sizes)
+            AccessTools.Field(typeof(FootstepManager), "maxDecals").SetValue(null, settings.MaxDecals);
+        }
+
+        public class Settings
+        {
+            // not used..nobody needs debug on this except dev
+            //public bool enableDebug = true;
+
+            public int maxDecals;
+
+            public int MaxDecals
+            {
+                get => maxDecals;
+
+                set
+                {
+                    // make an acceptable value
+                    if (value % 125 != 0 || maxDecals < 125 || maxDecals > 1000)
+                    {
+                        maxDecals = 125;
+                        LogDebug("MaxDecals must be a multiple of 125 and no greater than 1,000");
+                    }
+
+                    maxDecals = value;
+
+                    LogDebug($"maxDecals is {MaxDecals}");
+                }
+            }
+        }
+
+        // thanks jo!
+        public static float Distance(Matrix4x4 existingScorchPosition, Vector3 newScorchPosition)
+        {
+            var x = (double) existingScorchPosition.m03 - newScorchPosition.x;
+            var y = (double) existingScorchPosition.m13 - newScorchPosition.y;
+            var z = (double) existingScorchPosition.m23 - newScorchPosition.z;
+            return Mathf.Sqrt((float) (x * x + y * y + z * z));
         }
 
         // only useful to dump method IL
@@ -56,10 +103,10 @@ namespace ScorchedEarth
         }
     }
 
-    // every TerrainDecal will have a time property that makes all comparisons practically infinite with MaxValue
+// every TerrainDecal will have a time property that makes all comparisons practically infinite with MaxValue
     [HarmonyPatch(typeof(FootstepManager.TerrainDecal), MethodType.Constructor)]
     [HarmonyPatch(new[] {typeof(Vector3), typeof(Quaternion), typeof(Vector3), typeof(float)})]
-    public static class TerrainDecalCtorPatch
+    public static class PatchTerrainDecalCtor
     {
         public static bool Prefix(FootstepManager.TerrainDecal __instance, Vector3 position, Quaternion rotation, Vector3 scale)
         {
@@ -70,25 +117,22 @@ namespace ScorchedEarth
     }
 
     [HarmonyPatch(typeof(BTCustomRenderer), nameof(BTCustomRenderer.DrawDecals), MethodType.Normal)]
-    public static class DrawDecalsPatch
+    public static class PatchBTCustomRendererDrawDecals
     {
         // chop it up into blocks of 125
-        private static readonly int size = 125;
-        private static int numFootsteps = 0;
-        private static int numScorches = 0;
+        // thanks m22spencer for this silver bullet idea!
+        private static int size = 125;
+        private static int numFootsteps;
+        private static int numScorches;
+        static CommandBuffer deferredDecalsBuffer = new CommandBuffer();
 
         public static bool Prefix(BTCustomRenderer __instance, Camera camera)
         {
             BTCustomRenderer.CustomCommandBuffers customCommandBuffers = __instance.UseCamera(camera);
+
             if (customCommandBuffers == null)
             {
                 return false;
-            }
-
-            CommandBuffer deferredDecalsBuffer = customCommandBuffers.deferredDecalsBuffer;
-            if (!__instance.skipDecals)
-            {
-                BTDecal.DecalController.ProcessCommandBuffer(deferredDecalsBuffer, camera);
             }
 
             if (!Application.isPlaying || BTCustomRenderer.effectsQuality <= 0)
@@ -96,12 +140,15 @@ namespace ScorchedEarth
                 return false;
             }
 
+            deferredDecalsBuffer = customCommandBuffers.deferredDecalsBuffer;
+            BTDecal.DecalController.ProcessCommandBuffer(deferredDecalsBuffer, camera);
+
             Matrix4x4[] matrices1 = FootstepManager.Instance.ProcessFootsteps(out numFootsteps);
-            deferredDecalsBuffer.DrawMeshInstanced(BTDecal.DecalMesh.DecalMeshFull, 0, FootstepManager.Instance.footstepMaterial, 0, matrices1, numFootsteps, (MaterialPropertyBlock) null);
+            deferredDecalsBuffer.DrawMeshInstanced(BTDecal.DecalMesh.DecalMeshFull, 0, FootstepManager.Instance.footstepMaterial, 0, matrices1, numFootsteps, null);
 
             Matrix4x4[] matrices2 = FootstepManager.Instance.ProcessScorches(out numScorches);
 
-            // thanks https://stackoverflow.com/a/3517542/6296808 for the splitting code!
+            // thanks https://stackoverflow.com/a/3517542/6296808 for the splitting code
             var results = matrices2.Select((x, i) => new
                 {
                     Key = i / size,
@@ -113,104 +160,231 @@ namespace ScorchedEarth
             // send each array element (which is an array) to Unity
             for (int i = 0; i < results.Length; i++)
             {
-                deferredDecalsBuffer.DrawMeshInstanced(BTDecal.DecalMesh.DecalMeshFull, 0, FootstepManager.Instance.scorchMaterial, 0, results[i], size, (MaterialPropertyBlock) null);
+                deferredDecalsBuffer.DrawMeshInstanced(BTDecal.DecalMesh.DecalMeshFull, 0, FootstepManager.Instance.scorchMaterial, 0, results[i], size, null);
             }
 
             return false;
         }
     }
 
-    //[HarmonyPatch(typeof(FootstepManager), nameof(FootstepManager.ProcessScorches), new Type[] {typeof(int)}, new ArgumentType[] {ArgumentType.Out})]
-    //public static class ProcessScorchesPatch
-    //{
-    //    public static bool Prefix(FootstepManager __instance, out int numScorches, ref Matrix4x4[] __result)
-    //    {
-    //        for (int index = 0; index < __instance.scorchList.Count; ++index)
-    //        {
-    //            FootstepManager.TerrainDecal scorch = __instance.scorchList[index];
-    //            __instance.scorchAlphas[index] = Mathf.SmoothStep(0.0f, 1f, 1f);
-    //            __instance.scorchTRS[index] = scorch.transformMatrix;
-    //        }
-    //
-    //        Shader.SetGlobalFloatArray("_BT_ScorchAlpha", __instance.scorchAlphas);
-    //        numScorches = __instance.scorchList.Count;
-    //        __result = __instance.scorchTRS;
-    //        return false;
-    //    }
-    //}
-
-    // FIFO footsteps
+// FIFO footsteps
     [HarmonyPatch(typeof(FootstepManager), nameof(FootstepManager.AddFootstep))]
-    public static class AddFootstepPatch
+    public static class PatchFootstepManagerAddFootstep
     {
         public static void Prefix(FootstepManager __instance)
         {
+            // FIFO logic, only act when needed
             if (__instance.footstepList.Count != FootstepManager.maxDecals) return;
             try
             {
                 __instance.footstepList.RemoveAt(0);
-                Debug("footstepList element 0 removed");
+                LogDebug("footstepList element 0 removed");
             }
             catch // we don't need the exception
             {
-                Debug("AddFootstep remove 0 failed");
+                LogDebug("AddFootstep remove 0 failed");
             }
         }
 
         // running status line
         public static void Postfix(FootstepManager __instance)
         {
-            Debug($"footstepList is {__instance.footstepList.Count}/{__instance.footstepList.Capacity}");
+            LogDebug($"footstepList is {__instance.footstepList.Count}/{__instance.footstepList.Capacity}");
         }
     }
 
-    // draws scorches without logic checks, also providing FIFO by removing the first scorch element as needed
+// draws scorches without logic checks, also providing FIFO by removing the first scorch element as needed
     [HarmonyPatch(typeof(FootstepManager), nameof(FootstepManager.AddScorch))]
-    public static class AddScorchPatch
+    public static class PatchFootstepManagerAddScorch
     {
-        public static void Prefix(FootstepManager __instance)
+        public static bool Prefix(FootstepManager __instance, Vector3 position, Vector3 forward, Vector3 scale, bool persistent, ref bool __result)
         {
-            // FIFO logic
-            if (__instance.scorchList.Count != FootstepManager.maxDecals) return;
+            if (__instance._scorchTRS.Any(x => Distance(x, position) > DECALJITTER))
+            {
+                Quaternion rotation = Quaternion.LookRotation(forward);
+                rotation = Quaternion.Euler(0.0f, rotation.eulerAngles.y, 0.0f);
+                __instance.scorchList.Add(new FootstepManager.TerrainDecal(position, rotation, scale, -1f));
+                __result = true;
+            }
+
+            // FIFO logic, only act when needed
+            if (__instance.scorchList.Count != FootstepManager.maxDecals) return false;
             try
             {
                 __instance.scorchList.RemoveAt(0);
-                Debug("scorchList element 0 removed");
+                LogDebug("scorchList element 0 removed");
             }
             catch // we don't need the exception
+
             {
-                Debug("AddScorch remove 0 failed");
+                LogDebug("AddScorch remove 0 failed");
             }
+
+            return false;
         }
 
         // nop 7 leading codes to skip count checks
-        public static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
-        {
-            var codes = new List<CodeInstruction>(instructions);
-
-            for (var i = 0; i < 7; i++)
-            {
-                codes[i].opcode = OpCodes.Nop;
-            }
-
-            //ListTheStack(codes);
-            return codes.AsEnumerable();
-        }
+        // public static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
+        // {
+        //     var codes = new List<CodeInstruction>(instructions);
+        //     for (var i = 0; i < 7; i++)
+        //     {
+        //         codes[i].opcode = OpCodes.Nop;
+        //     }
+        //
+        //     return codes.AsEnumerable();
+        // }
 
         // running status line
         public static void Postfix(FootstepManager __instance)
         {
-            Debug($"scorchList is {__instance.scorchList.Count}/{__instance.scorchList.Capacity}");
+            LogDebug($"scorchList is {__instance.scorchList.Count}/{__instance.scorchList.Capacity}");
         }
     }
 }
+
+//[HarmonyPatch(typeof(FootstepManager), nameof(FootstepManager.ProcessScorches), new Type[] {typeof(int)}, new ArgumentType[] {ArgumentType.Out})]
+//public static class ProcessScorchesPatch
+//{
+//    public static bool Prefix(FootstepManager __instance, out int numScorches, ref Matrix4x4[] __result)
+//    {
+//        for (int index = 0; index < __instance.scorchList.Count; ++index)
+//        {
+//            FootstepManager.TerrainDecal scorch = __instance.scorchList[index];
+//            __instance.scorchAlphas[index] = Mathf.SmoothStep(0.0f, 1f, 1f);
+//            __instance.scorchTRS[index] = scorch.transformMatrix;
+//        }
+//
+//        Shader.SetGlobalFloatArray("_BT_ScorchAlpha", __instance.scorchAlphas);
+//        numScorches = __instance.scorchList.Count;
+//        __result = __instance.scorchTRS;
+//        return false;
+//    }
+//}
+
+/*   [HarmonyPatch(typeof(MissileEffect), nameof(MissileEffect.PlayImpact), MethodType.Normal)]
+   public class PatchMissileEffectPlayImpact
+   {
+       // copied from decompile
+       public static bool Prefix(MissileEffect __instance)
+       {
+           __instance.PlayImpactAudio();
+           if (__instance.isSRM)
+           {
+               int num1 = (int) WwiseManager.PostEvent(AudioEventList_srm.srm_projectile_stop, __instance.projectileAudioObject, null, null);
+           }
+           else
+           {
+               int num2 = (int) WwiseManager.PostEvent(AudioEventList_lrm.lrm_projectile_stop, __instance.projectileAudioObject, null, null);
+           }
+
+           if (!string.IsNullOrEmpty(__instance.impactVFXBase) && __instance.hitInfo.hitLocations[__instance.hitIndex] != 0)
+           {
+               string str1 = string.Empty;
+               bool flag = false;
+               ICombatant combatantByGuid = __instance.Combat.FindCombatantByGUID(__instance.hitInfo.targetId);
+               string str2 = string.Empty;
+               if (__instance.hitInfo.hitLocations[__instance.hitIndex] == 65536)
+               {
+                   flag = true;
+                   MapTerrainDataCell cellAt = __instance.weapon.parent.Combat.MapMetaData.GetCellAt(__instance.endPos);
+                   if (cellAt != null)
+                   {
+                       str2 = cellAt.GetVFXNameModifier();
+                       switch (cellAt.GetAudioSurfaceType())
+                       {
+                           case AudioSwitch_surface_type.dirt:
+                               str1 = "_dirt";
+                               break;
+                           case AudioSwitch_surface_type.metal:
+                               str1 = "_metal";
+                               break;
+                           case AudioSwitch_surface_type.snow:
+                               str1 = "_snow";
+                               break;
+                           case AudioSwitch_surface_type.wood:
+                               str1 = "_wood";
+                               break;
+                           case AudioSwitch_surface_type.brush:
+                               str1 = "_brush";
+                               break;
+                           case AudioSwitch_surface_type.concrete:
+                               str1 = "_concrete";
+                               break;
+                           case AudioSwitch_surface_type.debris_glass:
+                               str1 = "_debris_glass";
+                               break;
+                           case AudioSwitch_surface_type.gravel:
+                               str1 = "_gravel";
+                               break;
+                           case AudioSwitch_surface_type.ice:
+                               str1 = "_ice";
+                               break;
+                           case AudioSwitch_surface_type.lava:
+                               str1 = "_lava";
+                               break;
+                           case AudioSwitch_surface_type.mud:
+                               str1 = "_mud";
+                               break;
+                           case AudioSwitch_surface_type.sand:
+                               str1 = "_sand";
+                               break;
+                           case AudioSwitch_surface_type.water_deep:
+                           case AudioSwitch_surface_type.water_shallow:
+                               str1 = "_water";
+                               break;
+                           default:
+                               str1 = "_dirt";
+                               break;
+                       }
+                   }
+               }
+               else if (__instance.hitInfo.hitLocations[__instance.hitIndex] != 65536 &&
+                        combatantByGuid != null &&
+                        __instance.weapon.DamagePerShotAdjusted(__instance.weapon.parent.occupiedDesignMask) >
+                        (double) combatantByGuid.ArmorForLocation(__instance.hitInfo.hitLocations[__instance.hitIndex]))
+               {
+                   str1 = "_crit";
+               }
+               else if (__instance.impactVFXVariations != null && __instance.impactVFXVariations.Length > 0)
+               {
+                   str1 = "_" + __instance.impactVFXVariations[Random.Range(0, __instance.impactVFXVariations.Length)];
+               }
+
+               __instance.SpawnImpactExplosion(string.Format("{0}{1}{2}", __instance.impactVFXBase, str1, str2));
+               if (flag)
+               {
+                   // create the Vector3 ahead of time
+                   float num3 = Random.Range(20f, 25f) * (!__instance.isSRM ? 1f : 0.75f);
+                   var randomVector1 = new Vector3(Random.Range(0.0f, 1f), 0.0f, Random.Range(0.0f, 1f)).normalized;
+
+                   // enumerate the existing scorch TRS array for decals considered close enough
+                   // thanks jo!
+                   if (FootstepManager.Instance._scorchTRS.Any(x => Distance(x, randomVector1) > DECALJITTER))
+                   {
+                       FootstepManager.Instance.AddScorch(__instance.endPos, randomVector1, new Vector3(num3, num3, num3), false);
+                   }
+               }
+           }
+
+           __instance.PlayImpactDamageOverlay();
+           if (__instance.projectileMeshObject != null)
+               __instance.projectileMeshObject.SetActive(false);
+           if (__instance.projectileLightObject != null)
+               __instance.projectileLightObject.SetActive(false);
+           __instance.OnImpact(0.0f);
+
+           return false;
+       }
+   }
+   */
 
 //[HarmonyPatch(typeof(BTDecal.DecalController), "RemoveDecal", MethodType.Normal)]
 //public static class RemoveDecalPatch
 //{
 //    public static bool Prefix(BTDecal decal)
 //    {
-//        Debug("RemoveDecal Prefix");
+//        //LogDebug("RemoveDecal Prefix");
 //        List<BTDecal> list;
 //        if (BTDecal.DecalController.decalDict.TryGetValue(decal.decalMaterial, out list))
 //        {
@@ -233,7 +407,7 @@ namespace ScorchedEarth
 //    {
 //        if (said) return;
 //        said = true;
-//        Debug($"ProcessCommandBuffer says max is {BTDecal.DecalController.MaxInstances}");
+//        //LogDebug($"ProcessCommandBuffer says max is {BTDecal.DecalController.MaxInstances}");
 //    }
 //}
 
@@ -291,14 +465,14 @@ namespace ScorchedEarth
 //
 //        if (material.name.Contains("ScorchMaterial"))
 //        {
-//            //Debug("found scorches");
+//            ////LogDebug("found scorches");
 //        }
 //
 //        if (count > 0)
 //        {
 //            //if (!initialized)
 //            {
-//                //Debug("trying traverses");
+//                ////LogDebug("trying traverses");
 //
 //                initialized = true;
 //                var drawMeshMethodInfo = AccessTools.Method(typeof(CommandBuffer), "Internal_DrawMeshInstanced",
@@ -362,7 +536,7 @@ namespace ScorchedEarth
 //    [HarmonyPrefix]
 //    public static bool FootstepManager()
 //    {
-//        Debug("Static ctor!");
+//        //LogDebug("Static ctor!");
 //        int maxDecals = DECALS;
 //        float footstepLife = 1000000;
 //        float scorchLife = 1000000;
@@ -377,7 +551,7 @@ namespace ScorchedEarth
 //{
 //    public static bool Prefix()
 //    {
-//        Debug("DecalInvisible");
+//        //LogDebug("DecalInvisible");
 //        return false;
 //    }
 //}
@@ -394,7 +568,7 @@ namespace ScorchedEarth
 //        if (!said)
 //        {
 //            said = true;
-//            Debug($"MaxInstances returning {BTDecal.DecalController.MaxInstances}\nStopping after one verification");
+//            //LogDebug($"MaxInstances returning {BTDecal.DecalController.MaxInstances}\nStopping after one verification");
 //        }
 //
 //        __result = DECALS;
