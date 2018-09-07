@@ -2,13 +2,14 @@
 using System.IO;
 using System.Reflection;
 using Harmony;
+using UnityTest;
 using static ScorchedEarth.ScorchedEarth;
 
 namespace ScorchedEarth
 {
     public static class Logger
     {
-        private static string LogFilePath => Path.Combine(ModDirectory, "log.txt");
+        private static string LogFilePath => Path.Combine(modDirectory, "log.txt");
         private static readonly string Version = ((AssemblyFileVersionAttribute) Attribute.GetCustomAttribute(
             Assembly.GetExecutingAssembly(), typeof(AssemblyFileVersionAttribute), false)).Version;
 
@@ -16,6 +17,7 @@ namespace ScorchedEarth
         {
             using (var writer = new StreamWriter(LogFilePath, true))
             {
+                writer.WriteLine(new string(c: '=', count: 80));
                 writer.WriteLine($"Message: {ex.Message}");
                 writer.WriteLine($"StackTrace: {ex.StackTrace}");
             }
@@ -23,7 +25,7 @@ namespace ScorchedEarth
 
         public static void LogDebug(string line)
         {
-            if (!debug) return;
+            if (!modSettings.enableDebug) return;
             using (var writer = new StreamWriter(LogFilePath, true))
             {
                 writer.WriteLine(line);
