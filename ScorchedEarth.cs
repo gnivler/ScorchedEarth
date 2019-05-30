@@ -5,7 +5,6 @@ using System.Linq;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Text;
-using BattleTech;
 using BattleTech.Rendering;
 using Harmony;
 using Newtonsoft.Json;
@@ -20,7 +19,6 @@ namespace ScorchedEarth
     {
         // must be at least this far away to not be filtered out
         public const float DecalDistance = 4.25f;
-        public const float MissSpread = 5f;
 
         public static string modDirectory;
         public static Settings modSettings;
@@ -60,6 +58,7 @@ namespace ScorchedEarth
         {
             public bool enableDebug;
             public int MaxDecals;
+            public float MissSpread;
         }
 
         // thanks jo!
@@ -92,7 +91,7 @@ namespace ScorchedEarth
                     sb.Append($"{codes[i].operand}");
                 }
 
-                sb.Append($"\n");
+                sb.Append("\n");
             }
 
             sb.Append(new string(c: '=', count: 80) + "\n");
@@ -101,7 +100,7 @@ namespace ScorchedEarth
     }
 
     // makes missile impacts more spread out
-    [HarmonyPatch(typeof(MechRepresentation), nameof(MechRepresentation.GetMissPosition), MethodType.Normal)]
+    //[HarmonyPatch(typeof(MechRepresentation), nameof(MechRepresentation.GetMissPosition), MethodType.Normal)]
     public static class MechRepresentation_GetMissPosition_Patch
     {
         public static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
@@ -112,12 +111,12 @@ namespace ScorchedEarth
             //    LogDebug("not null");
             //}
             //
-            
+
             var codes = new List<CodeInstruction>(instructions);
             var index = codes.FindIndex(c => c.operand != null && c.operand.ToString().Contains("get_normalized"));
 
             codes.Insert(index + 4, new CodeInstruction(OpCodes.Mul));
-            codes.Insert(index + 4, new CodeInstruction(OpCodes.Ldc_R4, MissSpread));
+            codes.Insert(index + 4, new CodeInstruction(OpCodes.Ldc_R4, modSettings.MissSpread));
 
             return codes.AsEnumerable();
         }
@@ -145,48 +144,36 @@ namespace ScorchedEarth
         private static int size = 125;
         private static int numFootsteps;
         private static int numScorches;
-        static CommandBuffer deferredDecalsBuffer = new CommandBuffer();
 
         public static bool Prefix(BTCustomRenderer __instance, Camera camera)
         {
-            BTCustomRenderer.CustomCommandBuffers customCommandBuffers = __instance.UseCamera(camera);
-
+            var customCommandBuffers = __instance.UseCamera(camera);
             if (customCommandBuffers == null)
-            {
                 return false;
-            }
-
+            var isUrban = __instance.terrainGenerator != null && __instance.terrainGenerator.biome.biomeSkin == Biome.BIOMESKIN.urbanHighTech;
+            var deferredDecalsBuffer = customCommandBuffers.deferredDecalsBuffer;
+            if (!__instance.skipDecals)
+                BTDecal.DecalController.ProcessCommandBuffer(deferredDecalsBuffer, camera);
             if (!Application.isPlaying || BTCustomRenderer.effectsQuality <= 0)
-            {
                 return false;
-            }
+            
+            int numFootsteps;
+            var matrices1 = FootstepManager.Instance.ProcessFootsteps(out numFootsteps, isUrban);
+            var material = !isUrban ? FootstepManager.Instance.footstepMaterial : FootstepManager.Instance.urbanFootstepMaterial;
+            deferredDecalsBuffer.SetGlobalFloat(BTCustomRenderer.Uniforms._FootstepScale, !isUrban ? 1f : 2f);
 
-            deferredDecalsBuffer = customCommandBuffers.deferredDecalsBuffer;
-            BTDecal.DecalController.ProcessCommandBuffer(deferredDecalsBuffer, camera);
-
-            Matrix4x4[] matrices1 = FootstepManager.Instance.ProcessFootsteps(out numFootsteps);
-            Matrix4x4[] matrices2 = FootstepManager.Instance.ProcessScorches(out numScorches);
-
-            // thanks https://stackoverflow.com/a/3517542/6296808 for the splitting code
-            var results1 = matrices1.Select((x, i) => new
-                {
-                    Key = i / size,
-                    Value = x
-                })
+            //// thanks https://stackoverflow.com/a/3517542/6296808 for the splitting code
+            var results1 = matrices1.Select((x, i) => new {Key = i / size, Value = x})
                 .GroupBy(x => x.Key, x => x.Value, (k, g) => g.ToArray())
                 .ToArray();
 
-            for (int i = 0; i < results1.Length; i++)
-            {
+            for (var i = 0; i < results1.Length; i++)
                 deferredDecalsBuffer.DrawMeshInstanced(BTDecal.DecalMesh.DecalMeshFull,
                     0, FootstepManager.Instance.footstepMaterial, 0, results1[i], size, null);
-            }
 
-            var results2 = matrices2.Select((x, i) => new
-                {
-                    Key = i / size,
-                    Value = x
-                })
+            int numScorches;
+            Matrix4x4[] matrices2 = FootstepManager.Instance.ProcessScorches(out numScorches);
+            var results2 = matrices2.Select((x, i) => new {Key = i / size, Value = x})
                 .GroupBy(x => x.Key, x => x.Value, (k, g) => g.ToArray())
                 .ToArray();
 
@@ -219,17 +206,17 @@ namespace ScorchedEarth
             }
         }
 
-        public static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
-        {
-            var codes = new List<CodeInstruction>(instructions);
-
-            for (var i = 0; i < 7; i++)
-            {
-                codes[i].opcode = OpCodes.Nop;
-            }
-
-            return codes.AsEnumerable();
-        }
+        //public static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
+        //{
+        //    var codes = new List<CodeInstruction>(instructions);
+        //
+        //    for (var i = 0; i < 7; i++)
+        //    {
+        //        codes[i].opcode = OpCodes.Nop;
+        //    }
+        //
+        //    return codes.AsEnumerable();
+        //}
 
         // running status line
         public static void Postfix(FootstepManager __instance)

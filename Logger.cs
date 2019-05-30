@@ -1,8 +1,6 @@
 ﻿using System;
 using System.IO;
 using System.Reflection;
-using Harmony;
-using UnityTest;
 using static ScorchedEarth.ScorchedEarth;
 
 namespace ScorchedEarth
