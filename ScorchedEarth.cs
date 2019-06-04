@@ -156,7 +156,7 @@ namespace ScorchedEarth
                 BTDecal.DecalController.ProcessCommandBuffer(deferredDecalsBuffer, camera);
             if (!Application.isPlaying || BTCustomRenderer.effectsQuality <= 0)
                 return false;
-            
+
             int numFootsteps;
             var matrices1 = FootstepManager.Instance.ProcessFootsteps(out numFootsteps, isUrban);
             var material = !isUrban ? FootstepManager.Instance.footstepMaterial : FootstepManager.Instance.urbanFootstepMaterial;
