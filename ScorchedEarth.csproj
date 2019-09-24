@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
   <PropertyGroup>
@@ -9,7 +9,7 @@
     <AppDesignerFolder>Properties</AppDesignerFolder>
     <RootNamespace>ScorchedEarth</RootNamespace>
     <AssemblyName>ScorchedEarth</AssemblyName>
-    <TargetFrameworkVersion>v3.5</TargetFrameworkVersion>
+    <TargetFrameworkVersion>v4.5.1</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <LangVersion>default</LangVersion>
   </PropertyGroup>
@@ -55,18 +55,16 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="Logger.cs" />
     <Compile Include="ScorchedEarth.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>
-    <Content Include="..\..\SteamLibrary\steamapps\common\BATTLETECH\Mods\ScorchedEarth\mod.json">
-      <Link>mod.json</Link>
-    </Content>
+    <Content Include="mod.json" />
     <Content Include="Unlicense.txt" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <PropertyGroup>
+    <PostBuildEvent>xcopy $(TargetPath) N:\SteamLibrary\steamapps\common\BATTLETECH\Mods\ScorchedEarth /Y</PostBuildEvent>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Both|AnyCPU' ">
     <OutputPath>bin\Both\</OutputPath>
