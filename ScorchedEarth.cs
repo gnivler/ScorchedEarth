@@ -7,6 +7,8 @@ using Newtonsoft.Json;
 using UnityEngine;
 using static ScorchedEarth.ScorchedEarth;
 
+// ReSharper disable NotAccessedVariable
+// ReSharper disable ClassNeverInstantiated.Global
 // ReSharper disable InconsistentNaming
 
 namespace ScorchedEarth
@@ -16,9 +18,9 @@ namespace ScorchedEarth
         // must be at least this far away to not be filtered out
         public const float DecalDistance = 4.25f;
 
-        public static Settings modSettings;
+        private static Settings modSettings;
 
-        public static void Init(string directory, string settingsJson)
+        public static void Init(string settingsJson)
         {
             var harmony = HarmonyInstance.Create("ca.gnivler.BattleTech.ScorchedEarth");
             harmony.PatchAll(Assembly.GetExecutingAssembly());
@@ -26,15 +28,15 @@ namespace ScorchedEarth
             {
                 modSettings = JsonConvert.DeserializeObject<Settings>(settingsJson);
             }
-            catch (Exception e)
+            catch (Exception ex)
             {
-                Log(e);
+                Log(ex);
                 modSettings = new Settings();
             }
 
             // maxDecals changes EVERYTHING (all* arrays sizes)
             // make an acceptable value
-            int decals = modSettings.MaxDecals;
+            var decals = modSettings.MaxDecals;
             if (decals < 125 || decals > 1000 || decals % 125 != 0)
             {
                 modSettings.MaxDecals = 125;
@@ -50,21 +52,12 @@ namespace ScorchedEarth
             //FileLog.Log($"[ScorchedEarth] {input}");
         }
 
-        public class Settings
+        private class Settings
         {
             public int MaxDecals;
         }
-
-        // thanks jo!
-        public static float Distance(Matrix4x4 existingScorchPosition, Vector3 newScorchPosition)
-        {
-            var x = (double) existingScorchPosition.m03 - newScorchPosition.x;
-            var y = (double) existingScorchPosition.m13 - newScorchPosition.y;
-            var z = (double) existingScorchPosition.m23 - newScorchPosition.z;
-            return Mathf.Sqrt((float) (x * x + y * y + z * z));
-        }
     }
-    
+
     // this lets footsteps be infinite easily
     // TerrainDecal will have a time property that makes all comparisons practically infinite with MaxValue
     [HarmonyPatch(typeof(FootstepManager.TerrainDecal), MethodType.Constructor)]
@@ -79,12 +72,12 @@ namespace ScorchedEarth
         }
     }
 
-    [HarmonyPatch(typeof(BTCustomRenderer), nameof(BTCustomRenderer.DrawDecals), MethodType.Normal)]
+    [HarmonyPatch(typeof(BTCustomRenderer), nameof(BTCustomRenderer.DrawDecals))]
     public static class PatchBTCustomRendererDrawDecals
     {
         // chop it up into blocks of 125
         // thanks m22spencer for this silver bullet idea!
-        private static int size = 125;
+        private const int chunkSize = 125;
 
         public static bool Prefix(BTCustomRenderer __instance, Camera camera)
         {
@@ -102,18 +95,20 @@ namespace ScorchedEarth
             var matrices1 = FootstepManager.Instance.ProcessFootsteps(out numFootsteps, isUrban);
             deferredDecalsBuffer.SetGlobalFloat(BTCustomRenderer.Uniforms._FootstepScale, !isUrban ? 1f : 2f);
 
-            //// thanks https://stackoverflow.com/a/3517542/6296808 for the splitting code
-            var results1 = matrices1.Select((x, i) => new {Key = i / size, Value = x})
+            // thanks https://stackoverflow.com/a/3517542/6296808 for the splitting code
+            var results1 = matrices1
+                .Select((x, i) => new {Key = i / chunkSize, Value = x})
                 .GroupBy(x => x.Key, x => x.Value, (k, g) => g.ToArray())
                 .ToArray();
 
             for (var i = 0; i < results1.Length; i++)
                 deferredDecalsBuffer.DrawMeshInstanced(BTDecal.DecalMesh.DecalMeshFull,
-                    0, FootstepManager.Instance.footstepMaterial, 0, results1[i], size, null);
+                    0, FootstepManager.Instance.footstepMaterial, 0, results1[i], chunkSize, null);
 
             int numScorches;
             var matrices2 = FootstepManager.Instance.ProcessScorches(out numScorches);
-            var results2 = matrices2.Select((x, i) => new {Key = i / size, Value = x})
+            var results2 = matrices2
+                .Select((x, i) => new {Key = i / chunkSize, Value = x})
                 .GroupBy(x => x.Key, x => x.Value, (k, g) => g.ToArray())
                 .ToArray();
 
@@ -121,7 +116,7 @@ namespace ScorchedEarth
             for (int i = 0; i < results2.Length; i++)
             {
                 deferredDecalsBuffer.DrawMeshInstanced(BTDecal.DecalMesh.DecalMeshFull,
-                    0, FootstepManager.Instance.scorchMaterial, 0, results2[i], size, null);
+                    0, FootstepManager.Instance.scorchMaterial, 0, results2[i], chunkSize, null);
             }
 
             return false;
@@ -134,15 +129,19 @@ namespace ScorchedEarth
         public static void Prefix(FootstepManager __instance)
         {
             // FIFO logic, only act when needed
-            if (__instance.footstepList.Count != FootstepManager.maxDecals) return;
+            if (__instance.footstepList.Count != FootstepManager.maxDecals)
+            {
+                return;
+            }
+
             try
             {
                 __instance.footstepList.RemoveAt(0);
-                Log("footstep removed");
+                Log("oldest footstep removed");
             }
-            catch
+            catch (Exception ex)
             {
-                Log("footstep remove failed");
+                Log(ex);
             }
         }
 
@@ -157,9 +156,18 @@ namespace ScorchedEarth
     [HarmonyPatch(typeof(FootstepManager), nameof(FootstepManager.AddScorch))]
     public static class PatchFootstepManagerAddScorch
     {
-        public static bool Prefix(FootstepManager __instance, Vector3 position, Vector3 forward, Vector3 scale, bool persistent)
+        // thanks jo!
+        private static float Distance(Matrix4x4 existingScorchPosition, Vector3 newScorchPosition)
         {
-            // only allow decals which are sufficiently distant to be added
+            var x = (double) existingScorchPosition.m03 - newScorchPosition.x;
+            var y = (double) existingScorchPosition.m13 - newScorchPosition.y;
+            var z = (double) existingScorchPosition.m23 - newScorchPosition.z;
+            return Mathf.Sqrt((float) (x * x + y * y + z * z));
+        }
+
+        public static bool Prefix(FootstepManager __instance, Vector3 position, Vector3 forward, Vector3 scale)
+        {
+            // only allow decals which are sufficiently distant to be added (mitigating stacking decals which are not discernible)
             if (__instance.scorchList.Count == 0 ||
                 __instance.scorchList.All(x => Distance(x.transformMatrix, position) > DecalDistance))
             {
@@ -169,16 +177,19 @@ namespace ScorchedEarth
             }
 
             Log($"Scorch count: {__instance.scorchList.Count}/{__instance.scorchList.Capacity}");
-            if (__instance.scorchList.Count != FootstepManager.maxDecals) return false;
+            if (__instance.scorchList.Count != FootstepManager.maxDecals)
+            {
+                return false;
+            }
 
             try
             {
                 __instance.scorchList.RemoveAt(0);
-                Log("scorch removed");
+                Log("oldest scorch removed");
             }
-            catch
+            catch (Exception ex)
             {
-                Log("scorch remove failed");
+                Log(ex);
             }
 
             return false;
