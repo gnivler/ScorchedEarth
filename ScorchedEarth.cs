@@ -1,10 +1,13 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Reflection.Emit;
 using BattleTech.Rendering;
 using Harmony;
 using Newtonsoft.Json;
 using UnityEngine;
+using UnityEngine.Rendering;
 using static ScorchedEarth.ScorchedEarth;
 
 // ReSharper disable NotAccessedVariable
@@ -18,12 +21,12 @@ namespace ScorchedEarth
         // must be at least this far away to not be filtered out
         public const float DecalDistance = 4.25f;
 
+        internal static readonly HarmonyInstance harmony = HarmonyInstance.Create("ca.gnivler.BattleTech.ScorchedEarth");
+
         private static Settings modSettings;
 
         public static void Init(string settingsJson)
         {
-            var harmony = HarmonyInstance.Create("ca.gnivler.BattleTech.ScorchedEarth");
-            harmony.PatchAll(Assembly.GetExecutingAssembly());
             try
             {
                 modSettings = JsonConvert.DeserializeObject<Settings>(settingsJson);
@@ -34,6 +37,12 @@ namespace ScorchedEarth
                 modSettings = new Settings();
             }
 
+            SetMaxDecals();
+            ManualPatches.Init();
+        }
+
+        private static void SetMaxDecals()
+        {
             // maxDecals changes EVERYTHING (all* arrays sizes)
             // make an acceptable value
             var decals = modSettings.MaxDecals;
@@ -58,86 +67,21 @@ namespace ScorchedEarth
         }
     }
 
-    // this lets footsteps be infinite easily
-    // TerrainDecal will have a time property that makes all comparisons practically infinite with MaxValue
-    [HarmonyPatch(typeof(FootstepManager.TerrainDecal), MethodType.Constructor)]
-    [HarmonyPatch(new[] {typeof(Vector3), typeof(Quaternion), typeof(Vector3), typeof(float)})]
-    public static class PatchTerrainDecalCtor
+    public class ManualPatches
     {
-        public static bool Prefix(FootstepManager.TerrainDecal __instance, Vector3 position, Quaternion rotation, Vector3 scale)
+        internal static void Init()
         {
-            __instance.transformMatrix = Matrix4x4.TRS(position, rotation, scale);
-            __instance.startTime = float.MaxValue;
-            return false;
-        }
-    }
-
-    [HarmonyPatch(typeof(BTCustomRenderer), nameof(BTCustomRenderer.DrawDecals))]
-    public static class PatchBTCustomRendererDrawDecals
-    {
-        // chop it up into blocks of 125
-        // thanks m22spencer for this silver bullet idea!
-        private const int chunkSize = 125;
-
-        public static bool Prefix(BTCustomRenderer __instance, Camera camera)
-        {
-            var customCommandBuffers = __instance.UseCamera(camera);
-            if (customCommandBuffers == null)
-                return false;
-            var isUrban = __instance.terrainGenerator != null && __instance.terrainGenerator.biome.biomeSkin == Biome.BIOMESKIN.urbanHighTech;
-            var deferredDecalsBuffer = customCommandBuffers.deferredDecalsBuffer;
-            if (!__instance.skipDecals)
-                BTDecal.DecalController.ProcessCommandBuffer(deferredDecalsBuffer, camera);
-            if (!Application.isPlaying || BTCustomRenderer.effectsQuality <= 0)
-                return false;
-
-            int numFootsteps;
-            var matrices1 = FootstepManager.Instance.ProcessFootsteps(out numFootsteps, isUrban);
-            deferredDecalsBuffer.SetGlobalFloat(BTCustomRenderer.Uniforms._FootstepScale, !isUrban ? 1f : 2f);
-
-            // thanks https://stackoverflow.com/a/3517542/6296808 for the splitting code
-            var results1 = matrices1
-                .Select((x, i) => new {Key = i / chunkSize, Value = x})
-                .GroupBy(x => x.Key, x => x.Value, (k, g) => g.ToArray())
-                .ToArray();
-
-            for (var i = 0; i < results1.Length; i++)
-                deferredDecalsBuffer.DrawMeshInstanced(BTDecal.DecalMesh.DecalMeshFull,
-                    0, FootstepManager.Instance.footstepMaterial, 0, results1[i], chunkSize, null);
-
-            int numScorches;
-            var matrices2 = FootstepManager.Instance.ProcessScorches(out numScorches);
-            var results2 = matrices2
-                .Select((x, i) => new {Key = i / chunkSize, Value = x})
-                .GroupBy(x => x.Key, x => x.Value, (k, g) => g.ToArray())
-                .ToArray();
-
-            // send each array element (which is an array) to Unity
-            for (int i = 0; i < results2.Length; i++)
-            {
-                deferredDecalsBuffer.DrawMeshInstanced(BTDecal.DecalMesh.DecalMeshFull,
-                    0, FootstepManager.Instance.scorchMaterial, 0, results2[i], chunkSize, null);
-            }
-
-            return false;
-        }
-    }
-
-    [HarmonyPatch(typeof(FootstepManager), nameof(FootstepManager.AddFootstep))]
-    public static class PatchFootstepManagerAddFootstep
-    {
-        public static void Prefix(FootstepManager __instance)
-        {
-            // FIFO logic, only act when needed
-            if (__instance.footstepList.Count != FootstepManager.maxDecals)
-            {
-                return;
-            }
-
             try
             {
-                __instance.footstepList.RemoveAt(0);
-                Log("oldest footstep removed");
+                var terrainDecal = AccessTools.Inner(typeof(FootstepManager), "TerrainDecal");
+                var original = AccessTools.Constructor(terrainDecal, new[] {typeof(Vector3), typeof(Quaternion), typeof(Vector3), typeof(float)});
+                var transpiler = AccessTools.Method(typeof(ManualPatches), nameof(TerrainDecalCtorTranspiler));
+                harmony.Patch(original, null, null, new HarmonyMethod(transpiler));
+
+                var drawDecals = AccessTools.Method(typeof(BTCustomRenderer), "DrawDecals");
+                var prefix = AccessTools.Method(typeof(ManualPatches), nameof(DrawDecalsPrefix));
+                harmony.Patch(drawDecals, new HarmonyMethod(prefix));
+                harmony.PatchAll(Assembly.GetExecutingAssembly());
             }
             catch (Exception ex)
             {
@@ -145,16 +89,113 @@ namespace ScorchedEarth
             }
         }
 
-        // running status line
-        public static void Postfix(FootstepManager __instance)
+        private static IEnumerable<CodeInstruction> TerrainDecalCtorTranspiler(IEnumerable<CodeInstruction> instructions)
         {
-            Log($"Footstep count: {__instance.footstepList.Count}/{__instance.footstepList.Capacity}");
+            var codes = new List<CodeInstruction>(instructions);
+
+            codes[9].opcode = OpCodes.Ldc_R4;
+            codes[9].operand = float.MaxValue;
+
+            return codes.AsEnumerable();
+        }
+
+        // chop it up into blocks of 125
+        // thanks m22spencer for this silver bullet idea!
+        private const int chunkSize = 125;
+
+        private static bool DrawDecalsPrefix(BTCustomRenderer __instance, Camera camera)
+        {
+            try
+            {
+                var instance = Traverse.Create(__instance);
+                var customCommandBuffers = instance.Method("UseCamera", camera).GetValue<object>();
+
+                if (customCommandBuffers == null)
+                {
+                    return false;
+                }
+
+                var terrainGenerator = instance.Property("terrainGenerator").GetValue<TerrainGenerator>();
+                var isUrban = terrainGenerator != null && terrainGenerator.biome.biomeSkin == Biome.BIOMESKIN.urbanHighTech;
+                var deferredDecalsBuffer = Traverse.Create(customCommandBuffers).Field("deferredDecalsBuffer").GetValue<CommandBuffer>();
+                var skipDecals = instance.Field("skipDecals").GetValue<bool>();
+
+                if (!skipDecals)
+                {
+                    BTDecal.DecalController.ProcessCommandBuffer(deferredDecalsBuffer, camera);
+                }
+
+                if (!Application.isPlaying || BTCustomRenderer.EffectsQuality <= 0)
+                {
+                    return false;
+                }
+
+                int numFootsteps;
+                var matrices1 = FootstepManager.Instance.ProcessFootsteps(out numFootsteps, isUrban);
+                var uniforms = AccessTools.Inner(typeof(BTCustomRenderer), "Uniforms");
+                var nameID = (int) AccessTools.Field(uniforms, "_FootstepScale").GetValue(null);
+                deferredDecalsBuffer.SetGlobalFloat(nameID, !isUrban ? 1f : 2f);
+
+                // thanks https://stackoverflow.com/a/3517542/6296808 for the splitting code
+                // send each array element (which is an array) to Unity
+                var results1 = matrices1
+                    .Select((x, i) => new {Key = i / chunkSize, Value = x})
+                    .GroupBy(x => x.Key, x => x.Value, (k, g) => g.ToArray())
+                    .ToArray();
+
+                for (var i = 0; i < results1.Length; i++)
+                    deferredDecalsBuffer.DrawMeshInstanced(BTDecal.DecalMesh.DecalMeshFull,
+                        0, FootstepManager.Instance.footstepMaterial, 0, results1[i], chunkSize, null);
+
+                int numScorches;
+                var matrices2 = FootstepManager.Instance.ProcessScorches(out numScorches);
+                var results2 = matrices2
+                    .Select((x, i) => new {Key = i / chunkSize, Value = x})
+                    .GroupBy(x => x.Key, x => x.Value, (k, g) => g.ToArray())
+                    .ToArray();
+
+                for (int i = 0; i < results2.Length; i++)
+                {
+                    deferredDecalsBuffer.DrawMeshInstanced(BTDecal.DecalMesh.DecalMeshFull,
+                        0, FootstepManager.Instance.scorchMaterial, 0, results2[i], chunkSize, null);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log(ex);
+            }
+
+            return false;
+        }
+    }
+
+    [HarmonyPatch(typeof(FootstepManager), nameof(FootstepManager.AddFootstep))]
+    public static class FootstepManagerAddFootstep
+    {
+        public static void Prefix(List<object> ____footstepList)
+        {
+            Log($"Footstep count: {____footstepList.Count}/{____footstepList.Capacity}");
+
+            // FIFO logic, only act when needed
+            if (____footstepList.Count == FootstepManager.maxDecals)
+            {
+                Log("maxDecals exceeded");
+                try
+                {
+                    ____footstepList.RemoveAt(0);
+                    Log("oldest footstep removed");
+                }
+                catch (Exception ex)
+                {
+                    Log(ex);
+                }
+            }
         }
     }
 
     // draws scorches without logic checks, also providing FIFO by removing the first scorch element as needed
     [HarmonyPatch(typeof(FootstepManager), nameof(FootstepManager.AddScorch))]
-    public static class PatchFootstepManagerAddScorch
+    public class FootstepManagerAddScorch
     {
         // thanks jo!
         private static float Distance(Matrix4x4 existingScorchPosition, Vector3 newScorchPosition)
@@ -165,33 +206,38 @@ namespace ScorchedEarth
             return Mathf.Sqrt((float) (x * x + y * y + z * z));
         }
 
-        public static bool Prefix(FootstepManager __instance, Vector3 position, Vector3 forward, Vector3 scale)
+        public static bool Prefix(Vector3 position, List<object> ____scorchList)
         {
-            // only allow decals which are sufficiently distant to be added (mitigating stacking decals which are not discernible)
-            if (__instance.scorchList.Count == 0 ||
-                __instance.scorchList.All(x => Distance(x.transformMatrix, position) > DecalDistance))
-            {
-                var rotation = Quaternion.LookRotation(forward);
-                rotation = Quaternion.Euler(0.0f, rotation.eulerAngles.y, 0.0f);
-                __instance.scorchList.Add(new FootstepManager.TerrainDecal(position, rotation, scale, -1f));
-            }
-
-            Log($"Scorch count: {__instance.scorchList.Count}/{__instance.scorchList.Capacity}");
-            if (__instance.scorchList.Count != FootstepManager.maxDecals)
-            {
-                return false;
-            }
-
             try
             {
-                __instance.scorchList.RemoveAt(0);
-                Log("oldest scorch removed");
+                Log($"Scorch count: {____scorchList.Count}/{____scorchList.Capacity}");
+                if (____scorchList.All(
+                    terrainDecal => Distance((Matrix4x4) terrainDecal.GetType().GetRuntimeFields().FirstOrDefault(
+                             fieldInfo => fieldInfo.Name.Contains("transformMatrix")).GetValue(terrainDecal), position) > DecalDistance))
+                {
+                    if (____scorchList.Count == FootstepManager.maxDecals)
+                    {
+                        Log("maxDecals exceeded");
+                        try
+                        {
+                            ____scorchList.RemoveAt(0);
+                            Log("oldest scorch removed");
+                        }
+                        catch (Exception ex)
+                        {
+                            Log(ex);
+                        }
+                    }
+
+                    return true;
+                }
             }
             catch (Exception ex)
             {
                 Log(ex);
             }
 
+            Log("======================================================== dropped decal");
             return false;
         }
     }
