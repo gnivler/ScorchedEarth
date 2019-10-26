@@ -67,8 +67,8 @@
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <PropertyGroup>
-    <PostBuildEvent>xcopy $(TargetPath) "N:\SteamLibrary\steamapps\common\BATTLETECH\Mods\ScorchedEarth" /Y</PostBuildEvent>
-    <PostBuildEvent>xcopy "$(ProjectDir)mod.json" "N:\SteamLibrary\steamapps\common\BATTLETECH\Mods\ScorchedEarth" /Y</PostBuildEvent>
+    <PostBuildEvent>xcopy $(TargetPath) "N:\SteamLibrary\steamapps\common\BATTLETECH\Mods\ScorchedEarth" /Y 
+   xcopy "$(ProjectDir)mod.json" "N:\SteamLibrary\steamapps\common\BATTLETECH\Mods\ScorchedEarth" /Y</PostBuildEvent>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Both|AnyCPU' ">
     <OutputPath>bin\Both\</OutputPath>

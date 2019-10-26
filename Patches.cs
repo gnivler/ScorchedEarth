@@ -14,6 +14,7 @@ using Harmony;
 using UnityEngine;
 using UnityEngine.Rendering;
 using static ScorchedEarth.ScorchedEarth;
+// ReSharper disable UnusedMember.Local
 
 // ReSharper disable NotAccessedVariable
 // ReSharper disable ClassNeverInstantiated.Global
@@ -53,7 +54,7 @@ namespace ScorchedEarth
         [HarmonyPatch(typeof(BTCustomRenderer), "DrawDecals")]
         public static class BTCustomRenderer_DrawDecals_Patch
         {
-            internal static bool Prefix(BTCustomRenderer __instance, Camera camera)
+            public static bool Prefix(BTCustomRenderer __instance, Camera camera)
             {
                 try
                 {
@@ -232,7 +233,7 @@ namespace ScorchedEarth
                         Directory.CreateDirectory(modSettings.SaveDirectory);
                     }
 
-                    var filename = modSettings.SaveDirectory + "\\" + message.Slot.FileID.Substring(4) + ".json";
+                    var filename = modSettings.SaveDirectory + "/" + message.Slot.FileID.Substring(4) + ".gzip";
                     var results = new List<IList>
                     {
                         Helpers.ExtractDecals("scorchList"),
@@ -257,7 +258,7 @@ namespace ScorchedEarth
             [HarmonyPatch(typeof(GameInstance), "CreateCombatFromSave")]
             public static class GameInstance_CreateCombatFromSave_Patch
             {
-                static void Postfix(GameInstanceSave save)
+                public static void Postfix(GameInstanceSave save)
                 {
                     if (!modSettings.SaveState)
                     {
@@ -280,7 +281,7 @@ namespace ScorchedEarth
                             return;
                         }
 
-                        var filename = modSettings.SaveDirectory + "\\" + fileID.Substring(4) + ".json";
+                        var filename = modSettings.SaveDirectory + "/" + fileID.Substring(4) + ".gzip";
                         if (!Directory.Exists(modSettings.SaveDirectory) ||
                             !File.Exists(filename))
                         {
@@ -290,6 +291,7 @@ namespace ScorchedEarth
 
                         var results = new List<IList>();
                         Log("Hydrate scorches and footsteps");
+                        // first element is always scorches, 2nd footsteps
                         results.Add(Helpers.RecreateDecals(filename, "scorchList", 0));
                         results.Add(Helpers.RecreateDecals(filename, "footstepList", 1));
                         var scorchList = Traverse.Create(FootstepManager.Instance).Property("scorchList").GetValue<IList>();
