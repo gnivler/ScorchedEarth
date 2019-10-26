@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -14,6 +15,7 @@ using UnityEngine;
 using UnityEngine.Rendering;
 using static ScorchedEarth.ScorchedEarth;
 
+// ReSharper disable NotAccessedVariable
 // ReSharper disable ClassNeverInstantiated.Global
 // ReSharper disable InconsistentNaming
 
@@ -26,7 +28,8 @@ namespace ScorchedEarth
             try
             {
                 var terrainDecal = AccessTools.Inner(typeof(FootstepManager), "TerrainDecal");
-                var original = AccessTools.Constructor(terrainDecal, new[] {typeof(Vector3), typeof(Quaternion), typeof(Vector3), typeof(float)});
+                var original = AccessTools.Constructor(terrainDecal,
+                    new[] {typeof(Vector3), typeof(Quaternion), typeof(Vector3), typeof(float)});
                 var transpiler = AccessTools.Method(typeof(Patches), nameof(TerrainDecal_Ctor_Transpiler));
                 harmony.Patch(original, null, null, new HarmonyMethod(transpiler));
                 harmony.PatchAll(Assembly.GetExecutingAssembly());
@@ -37,7 +40,8 @@ namespace ScorchedEarth
             }
         }
 
-        private static IEnumerable<CodeInstruction> TerrainDecal_Ctor_Transpiler(IEnumerable<CodeInstruction> instructions)
+        private static IEnumerable<CodeInstruction> TerrainDecal_Ctor_Transpiler(
+            IEnumerable<CodeInstruction> instructions)
         {
             var codes = instructions.ToList();
             codes[9].opcode = OpCodes.Ldc_R4;
@@ -63,8 +67,10 @@ namespace ScorchedEarth
                     }
 
                     var terrainGenerator = instance.Property("terrainGenerator").GetValue<TerrainGenerator>();
-                    var isUrban = terrainGenerator != null && terrainGenerator.biome.biomeSkin == Biome.BIOMESKIN.urbanHighTech;
-                    var deferredDecalsBuffer = Traverse.Create(customCommandBuffers).Field("deferredDecalsBuffer").GetValue<CommandBuffer>();
+                    var isUrban = terrainGenerator != null &&
+                                  terrainGenerator.biome.biomeSkin == Biome.BIOMESKIN.urbanHighTech;
+                    var deferredDecalsBuffer = Traverse.Create(customCommandBuffers).Field("deferredDecalsBuffer")
+                        .GetValue<CommandBuffer>();
                     var skipDecals = instance.Field("skipDecals").GetValue<bool>();
                     if (!skipDecals)
                     {
@@ -226,12 +232,17 @@ namespace ScorchedEarth
                         Directory.CreateDirectory(modSettings.SaveDirectory);
                     }
 
-                    var filename = modSettings.SaveDirectory + "\\" + message.Slot.FileID.Substring(4) + ".scorches.json";
-                    Helpers.BuildDecalList(filename, "scorchList");
-                    filename = modSettings.SaveDirectory + "\\" + message.Slot.FileID.Substring(4) + ".footsteps.json";
-                    Helpers.BuildDecalList(filename, "footstepList");
+                    var filename = modSettings.SaveDirectory + "\\" + message.Slot.FileID.Substring(4) + ".json";
+                    var results = new List<IList>
+                    {
+                        Helpers.ExtractDecals("scorchList"),
+                        Helpers.ExtractDecals("footstepList")
+                    };
+
+                    Helpers.SaveDecals(results, filename);
                 }
                 catch (Exception ex)
+
                 {
                     Log(ex);
                 }
@@ -269,19 +280,30 @@ namespace ScorchedEarth
                             return;
                         }
 
-                        var scorchFile = modSettings.SaveDirectory + "\\" + fileID.Substring(4) + ".scorches.json";
-                        var footstepFile = modSettings.SaveDirectory + "\\" + fileID.Substring(4) + ".footsteps.json";
+                        var filename = modSettings.SaveDirectory + "\\" + fileID.Substring(4) + ".json";
                         if (!Directory.Exists(modSettings.SaveDirectory) ||
-                            !File.Exists(scorchFile) ||
-                            !File.Exists(footstepFile))
+                            !File.Exists(filename))
                         {
                             Log("SaveState disabled, or missing data");
                             return;
                         }
 
+                        var results = new List<IList>();
                         Log("Hydrate scorches and footsteps");
-                        Helpers.CreateDecals(scorchFile, "scorchList");
-                        Helpers.CreateDecals(footstepFile, "footstepList");
+                        results.Add(Helpers.RecreateDecals(filename, "scorchList", 0));
+                        results.Add(Helpers.RecreateDecals(filename, "footstepList", 1));
+                        var scorchList = Traverse.Create(FootstepManager.Instance).Property("scorchList").GetValue<IList>();
+                        var footstepList = Traverse.Create(FootstepManager.Instance).Property("footstepList").GetValue<IList>();
+
+                        foreach (var decal in results[0])
+                        {
+                            scorchList.Add(decal);
+                        }
+
+                        foreach (var decal in results[1])
+                        {
+                            footstepList.Add(decal);
+                        }
                     }
                     catch (Exception ex)
                     {
