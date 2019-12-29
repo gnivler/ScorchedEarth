@@ -80,6 +80,7 @@ namespace ScorchedEarth
             }
 
             int numFootsteps;
+            deferredDecalsBuffer.SetGlobalFloat(BTCustomRenderer.Uniforms._FootstepScale, 1f);
             var footsteps = Helpers.ProcessFootsteps(out numFootsteps);
             foreach (var chunk in footsteps.Where(x => x != null))
             {
@@ -118,18 +119,12 @@ namespace ScorchedEarth
     [HarmonyPatch(typeof(FootstepManager), nameof(FootstepManager.AddFootstep))]
     public static class FootstepManager_AddFootstep_Patch
     {
-        internal static int previous;
-
         public static bool Prefix(Vector3 position, List<FootstepManager.TerrainDecal> ____footstepList)
         {
             try
             {
-                if (____footstepList.Count > previous)
-                {
-                    Log($"Footstep count: {____footstepList.Count}/{____footstepList.Capacity}");
-                    previous = ____footstepList.Count;
-                }
-
+                Log($"Footstep count: {____footstepList.Count}/{____footstepList.Capacity}");
+              
                 if (____footstepList.All(terrainDecal => Helpers.Distance(terrainDecal.transformMatrix, position) > FootstepDistance))
                 {
                     // FIFO logic, only act when needed
@@ -141,6 +136,7 @@ namespace ScorchedEarth
                         Log("oldest footstep removed");
                     }
 
+                    Log("Adding footstep");
                     return true;
                 }
             }
@@ -229,8 +225,7 @@ namespace ScorchedEarth
     public class Hydrate
     {
         private static string fileID;
-
-        // BUG if you load a game with data then complete the mission and take another one, it uses the last saved fileID instead of zeroing
+        
         // save the fileID here because it's not easily available at Briefing.InitializeContractComplete
         [HarmonyPatch(typeof(GameInstance), "Load")]
         public static class GameInstance_Load_Patch
@@ -276,8 +271,7 @@ namespace ScorchedEarth
 
                     if (string.IsNullOrEmpty(fileID))
                     {
-                        Log("New instance, not loading");
-                        FootstepManager_AddFootstep_Patch.previous = 0;
+                        Log("New instance");
                         return;
                     }
 
@@ -306,10 +300,6 @@ namespace ScorchedEarth
                     {
                         footstepList.Add(decal);
                     }
-
-                    // just for silencing the 'added footstep' logging
-                    Log("Resetting previous footstep count");
-                    FootstepManager_AddFootstep_Patch.previous = footstepList.Count;
                 }
                 catch (Exception ex)
                 {

@@ -39,7 +39,7 @@ namespace ScorchedEarth
             while (num < instance.footstepList.Count && num < FootstepManager.maxDecals)
             {
                 var terrainDecal = instance.footstepList[num];
-                instance.footstepAlphas[num] = Mathf.SmoothStep(0f, 1f, 1f);
+                instance.footstepAlphas[num] = 1f;
                 instance.footstepTRS[num] = terrainDecal.transformMatrix;
                 num++;
             }
@@ -64,7 +64,7 @@ namespace ScorchedEarth
             while (num < instance.scorchList.Count && num < FootstepManager.maxDecals)
             {
                 var terrainDecal = instance.scorchList[num];
-                instance.scorchAlphas[num] = Mathf.SmoothStep(0f, 1f, 1f);
+                instance.scorchAlphas[num] = 1f;
                 instance.scorchTRS[num] = terrainDecal.transformMatrix;
                 num++;
             }
