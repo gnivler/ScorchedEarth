@@ -12,10 +12,9 @@ using BattleTech.Save.SaveGameStructure.Messages;
 using BattleTech.UI;
 using Harmony;
 using UnityEngine;
-using UnityEngine.Rendering;
 using static ScorchedEarth.ScorchedEarth;
-// ReSharper disable UnusedMember.Local
 
+// ReSharper disable UnusedMember.Local
 // ReSharper disable NotAccessedVariable
 // ReSharper disable ClassNeverInstantiated.Global
 // ReSharper disable InconsistentNaming
@@ -51,172 +50,222 @@ namespace ScorchedEarth
             return codes.AsEnumerable();
         }
 
-        [HarmonyPatch(typeof(BTCustomRenderer), "DrawDecals")]
-        public static class BTCustomRenderer_DrawDecals_Patch
+        [HarmonyPatch(typeof(BTCustomRenderer), "OnPreCull")]
+        public static class BTCustomRenderer_OnPreCull_Patch
         {
-            public static bool Prefix(BTCustomRenderer __instance, Camera camera)
+            public static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
             {
-                try
-                {
-                    // code copied from original method
-                    var instance = Traverse.Create(__instance);
-                    var customCommandBuffers = instance.Method("UseCamera", camera).GetValue<object>();
-
-                    if (customCommandBuffers == null)
-                    {
-                        return false;
-                    }
-
-                    var terrainGenerator = instance.Property("terrainGenerator").GetValue<TerrainGenerator>();
-                    var isUrban = terrainGenerator != null &&
-                                  terrainGenerator.biome.biomeSkin == Biome.BIOMESKIN.urbanHighTech;
-                    var deferredDecalsBuffer = Traverse.Create(customCommandBuffers).Field("deferredDecalsBuffer")
-                        .GetValue<CommandBuffer>();
-                    var skipDecals = instance.Field("skipDecals").GetValue<bool>();
-                    if (!skipDecals)
-                    {
-                        BTDecal.DecalController.ProcessCommandBuffer(deferredDecalsBuffer, camera);
-                    }
-
-                    if (!Application.isPlaying || BTCustomRenderer.EffectsQuality <= 0)
-                    {
-                        return false;
-                    }
-
-                    int numFootsteps;
-                    var matrices1 = FootstepManager.Instance.ProcessFootsteps(out numFootsteps, isUrban);
-                    var uniforms = AccessTools.Inner(typeof(BTCustomRenderer), "Uniforms");
-                    var nameID = (int) AccessTools.Field(uniforms, "_FootstepScale").GetValue(null);
-                    deferredDecalsBuffer.SetGlobalFloat(nameID, !isUrban
-                        ? 1f
-                        : 2f);
-
-                    // magic here to exceed 125 decal cap
-                    // chop it up into blocks of 125
-                    // thanks m22spencer for this silver bullet idea!
-                    // thanks https://stackoverflow.com/a/3517542/6296808 for the splitting code
-                    // send each array element (which is an array) to Unity
-                    var results1 = matrices1
-                        .Select((x, i) => new {Key = i / chunkSize, Value = x})
-                        .GroupBy(x => x.Key, x => x.Value, (k, g) => g.ToArray())
-                        .ToArray();
-
-                    foreach (var array in results1)
-                    {
-                        deferredDecalsBuffer.DrawMeshInstanced(
-                            BTDecal.DecalMesh.DecalMeshFull,
-                            0,
-                            FootstepManager.Instance.footstepMaterial,
-                            0,
-                            array,
-                            chunkSize,
-                            null);
-                    }
-
-                    int numScorches;
-                    var matrices2 = FootstepManager.Instance.ProcessScorches(out numScorches);
-                    var results2 = matrices2
-                        .Select((x, i) => new {Key = i / chunkSize, Value = x})
-                        .GroupBy(x => x.Key, x => x.Value, (k, g) => g.ToArray())
-                        .ToArray();
-
-                    foreach (var array in results2)
-                    {
-                        deferredDecalsBuffer.DrawMeshInstanced(
-                            BTDecal.DecalMesh.DecalMeshFull,
-                            0,
-                            FootstepManager.Instance.scorchMaterial,
-                            0,
-                            array,
-                            chunkSize,
-                            null);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Log(ex);
-                }
-
-                return false;
+                // replace DrawDecals method call with our own and add argument for CustomCommandBuffers (for speed)
+                // note that this is using the publicized assembly https://github.com/CabbageCrow/AssemblyPublicizer
+                var codes = instructions.ToList();
+                var original = AccessTools.Method(typeof(BTCustomRenderer), nameof(BTCustomRenderer.DrawDecals));
+                var replacement = AccessTools.Method(typeof(Patches), nameof(DrawDecals),
+                    new[] {typeof(BTCustomRenderer), typeof(Camera), typeof(BTCustomRenderer.CustomCommandBuffers)});
+                var index = codes.FindIndex(c => c.operand is MethodInfo methodInfo && methodInfo == original);
+                codes.Insert(index, new CodeInstruction(OpCodes.Ldloc_1));
+                codes[index + 1].operand = replacement;
+                return codes.AsEnumerable();
             }
         }
 
-        [HarmonyPatch(typeof(FootstepManager), nameof(FootstepManager.AddFootstep))]
-        public static class FootstepManager_AddFootstep_Patch
+        public static void DrawDecals(object instance, Camera camera, BTCustomRenderer.CustomCommandBuffers customCommandBuffers)
         {
-            public static bool Prefix(Vector3 position, List<object> ____footstepList)
+            //var timer = new Stopwatch();
+            //timer.Restart();
+            var deferredDecalsBuffer = customCommandBuffers.deferredDecalsBuffer;
+            var skipDecals = ((BTCustomRenderer) instance).skipDecals;
+            if (!skipDecals)
             {
-                try
+                BTDecal.DecalController.ProcessCommandBuffer(deferredDecalsBuffer, camera);
+            }
+
+            int numFootsteps;
+            var footsteps = Helpers.ProcessFootsteps(out numFootsteps);
+            foreach (var chunk in footsteps.Where(x => x != null))
+            {
+                deferredDecalsBuffer.DrawMeshInstanced(
+                    BTDecal.DecalMesh.DecalMeshFull,
+                    0,
+                    FootstepManager.Instance.footstepMaterial,
+                    0,
+                    chunk,
+                    chunkSize);
+            }
+
+            int numScorches;
+            var scorches = Helpers.ProcessScorches(out numScorches);
+            foreach (var chunk in scorches.Where(x => x != null))
+            {
+                deferredDecalsBuffer.DrawMeshInstanced(
+                    BTDecal.DecalMesh.DecalMeshFull,
+                    0,
+                    FootstepManager.Instance.scorchMaterial,
+                    0,
+                    chunk,
+                    chunkSize);
+            }
+
+            //var time = timer.ElapsedTicks;
+            //if (time > 200000)
+            //{
+            //    Log("SLOW: " + timer.ElapsedTicks);
+            //    Log(new string('*', 100));
+            //}
+        }
+    }
+
+
+    [HarmonyPatch(typeof(FootstepManager), nameof(FootstepManager.AddFootstep))]
+    public static class FootstepManager_AddFootstep_Patch
+    {
+        internal static int previous;
+
+        public static bool Prefix(Vector3 position, List<FootstepManager.TerrainDecal> ____footstepList)
+        {
+            try
+            {
+                if (____footstepList.Count > previous)
                 {
                     Log($"Footstep count: {____footstepList.Count}/{____footstepList.Capacity}");
-                    // ReSharper disable once PossibleNullReferenceException
-                    if (____footstepList.All(terrainDecal =>
-                        Helpers.Distance((Matrix4x4) terrainDecal.GetType().GetRuntimeFields().FirstOrDefault(
-                                fieldInfo => fieldInfo.Name.Contains("transformMatrix"))
-                            .GetValue(terrainDecal), position) > 1f))
-                    {
-                        // FIFO logic, only act when needed
-                        if (____footstepList.Count == FootstepManager.maxDecals)
-                        {
-                            Log("maxDecals exceeded");
-
-                            ____footstepList.RemoveAt(0);
-                            Log("oldest footstep removed");
-                        }
-
-                        return true;
-                    }
+                    previous = ____footstepList.Count;
                 }
-                catch (Exception ex)
+
+                if (____footstepList.All(terrainDecal => Helpers.Distance(terrainDecal.transformMatrix, position) > FootstepDistance))
                 {
-                    Log(ex);
+                    // FIFO logic, only act when needed
+                    if (____footstepList.Count == FootstepManager.maxDecals)
+                    {
+                        Log("maxDecals exceeded");
+
+                        ____footstepList.RemoveAt(0);
+                        Log("oldest footstep removed");
+                    }
+
+                    return true;
                 }
-
-                Log("======================================================== dropped footstep");
-                return false;
             }
-        }
-
-        // draws scorches without logic checks, also providing FIFO by removing the first scorch element as needed
-        [HarmonyPatch(typeof(FootstepManager), nameof(FootstepManager.AddScorch))]
-        public class FootstepManager_AddScorch_Patch
-        {
-            public static bool Prefix(Vector3 position, List<object> ____scorchList)
+            catch (Exception ex)
             {
-                try
+                Log(ex);
+            }
+
+            Log("======================================================== dropped footstep");
+            return false;
+        }
+    }
+
+
+    // draws scorches without logic checks, also providing FIFO by removing the first scorch element as needed
+    [HarmonyPatch(typeof(FootstepManager), nameof(FootstepManager.AddScorch))]
+    public class FootstepManager_AddScorch_Patch
+    {
+        public static bool Prefix(Vector3 position, List<FootstepManager.TerrainDecal> ____scorchList)
+        {
+            try
+            {
+                Log($"Scorch count: {____scorchList.Count}/{____scorchList.Capacity}");
+                // ReSharper disable once PossibleNullReferenceException
+                if (____scorchList.All(terrainDecal =>
+                    Helpers.Distance(terrainDecal.transformMatrix, position) > DecalDistance))
                 {
-                    Log($"Scorch count: {____scorchList.Count}/{____scorchList.Capacity}");
-                    // ReSharper disable once PossibleNullReferenceException
-                    if (____scorchList.All(terrainDecal =>
-                        Helpers.Distance((Matrix4x4) terrainDecal.GetType().GetRuntimeFields().FirstOrDefault(
-                                fieldInfo => fieldInfo.Name.Contains("transformMatrix"))
-                            .GetValue(terrainDecal), position) > DecalDistance))
+                    // FIFO logic, only act when needed
+                    if (____scorchList.Count == FootstepManager.maxDecals)
                     {
-                        // FIFO logic, only act when needed
-                        if (____scorchList.Count == FootstepManager.maxDecals)
-                        {
-                            Log("maxDecals exceeded");
-                            ____scorchList.RemoveAt(0);
-                            Log("oldest scorch removed");
-                        }
-
-                        return true;
+                        Log("maxDecals exceeded");
+                        ____scorchList.RemoveAt(0);
+                        Log("oldest scorch removed");
                     }
+
+                    return true;
                 }
-                catch (Exception ex)
+            }
+            catch (Exception ex)
+            {
+                Log(ex);
+            }
+
+            Log("======================================================== dropped scorch");
+            return false;
+        }
+    }
+
+    [HarmonyPatch(typeof(GameInstance), "SaveComplete")]
+    public static class GameInstance_SaveComplete_Patch
+    {
+        public static void Postfix(StructureSaveComplete message)
+        {
+            try
+            {
+                if (!modSettings.SaveState)
                 {
-                    Log(ex);
+                    return;
                 }
 
-                Log("======================================================== dropped scorch");
-                return false;
+                Log("GameInstance_SaveComplete_Patch");
+                Helpers.CleanupSaves();
+
+                if (!Directory.Exists(modSettings.SaveDirectory))
+                {
+                    Directory.CreateDirectory(modSettings.SaveDirectory);
+                }
+
+                var filename = modSettings.SaveDirectory + "/" + message.Slot.FileID.Substring(4) + ".gzip";
+                var results = new List<IList>
+                {
+                    Helpers.ExtractDecals("scorchList"),
+                    Helpers.ExtractDecals("footstepList")
+                };
+
+                Helpers.SaveDecals(results, filename);
+            }
+            catch (Exception ex)
+
+            {
+                Log(ex);
+            }
+        }
+    }
+
+    public class Hydrate
+    {
+        private static string fileID;
+
+        // BUG if you load a game with data then complete the mission and take another one, it uses the last saved fileID instead of zeroing
+        // save the fileID here because it's not easily available at Briefing.InitializeContractComplete
+        [HarmonyPatch(typeof(GameInstance), "Load")]
+        public static class GameInstance_Load_Patch
+        {
+            public static void Postfix(GameInstanceSave save)
+            {
+                if (!modSettings.SaveState)
+                {
+                    return;
+                }
+
+                fileID = save.FileID;
             }
         }
 
-        [HarmonyPatch(typeof(GameInstance), "SaveComplete")]
-        public static class GameInstance_SaveComplete_Patch
+        [HarmonyPatch(typeof(CombatGameState), nameof(CombatGameState._Init))]
+        public static class CombatGameState__Init_Patch
         {
-            public static void Postfix(StructureSaveComplete message)
+            private static bool completed;
+
+            public static void Postfix(CombatGameState __instance)
+            {
+                if (!__instance.WasFromSave && !completed)
+                {
+                    Log("Clearing fileID");
+                    fileID = "";
+                    completed = true;
+                }
+            }
+        }
+
+        [HarmonyPatch(typeof(Briefing), "InitializeContractComplete")]
+        public static class Briefing_InitializeContractComplete_Patch
+        {
+            public static void Postfix()
             {
                 try
                 {
@@ -225,92 +274,46 @@ namespace ScorchedEarth
                         return;
                     }
 
-                    Log("Dehydrate");
-                    Helpers.CleanupSaves();
-
-                    if (!Directory.Exists(modSettings.SaveDirectory))
+                    if (string.IsNullOrEmpty(fileID))
                     {
-                        Directory.CreateDirectory(modSettings.SaveDirectory);
-                    }
-
-                    var filename = modSettings.SaveDirectory + "/" + message.Slot.FileID.Substring(4) + ".gzip";
-                    var results = new List<IList>
-                    {
-                        Helpers.ExtractDecals("scorchList"),
-                        Helpers.ExtractDecals("footstepList")
-                    };
-
-                    Helpers.SaveDecals(results, filename);
-                }
-                catch (Exception ex)
-
-                {
-                    Log(ex);
-                }
-            }
-        }
-
-        public class Hydrate
-        {
-            private static string fileID;
-
-            // save the fileID here because it's not easily available at Briefing.InitializeContractComplete
-            [HarmonyPatch(typeof(GameInstance), "CreateCombatFromSave")]
-            public static class GameInstance_CreateCombatFromSave_Patch
-            {
-                public static void Postfix(GameInstanceSave save)
-                {
-                    if (!modSettings.SaveState)
-                    {
+                        Log("New instance, not loading");
+                        FootstepManager_AddFootstep_Patch.previous = 0;
                         return;
                     }
 
-                    fileID = save.FileID;
+                    var filename = modSettings.SaveDirectory + "/" + fileID.Substring(4) + ".gzip";
+                    if (!Directory.Exists(modSettings.SaveDirectory) ||
+                        !File.Exists(filename))
+                    {
+                        Log("SaveState disabled, or missing data");
+                        return;
+                    }
+
+                    var results = new List<IList>();
+                    Log("Hydrate scorches and footsteps");
+                    // first element is always scorches, 2nd footsteps
+                    results.Add(Helpers.RecreateDecals(filename, "scorchList", 0));
+                    results.Add(Helpers.RecreateDecals(filename, "footstepList", 1));
+                    var scorchList = Traverse.Create(FootstepManager.Instance).Property("scorchList").GetValue<IList>();
+                    var footstepList = Traverse.Create(FootstepManager.Instance).Property("footstepList").GetValue<IList>();
+
+                    foreach (var decal in results[0])
+                    {
+                        scorchList.Add(decal);
+                    }
+
+                    foreach (var decal in results[1])
+                    {
+                        footstepList.Add(decal);
+                    }
+
+                    // just for silencing the 'added footstep' logging
+                    Log("Resetting previous footstep count");
+                    FootstepManager_AddFootstep_Patch.previous = footstepList.Count;
                 }
-            }
-
-            [HarmonyPatch(typeof(Briefing), "InitializeContractComplete")]
-            public static class Briefing_InitializeContractComplete_Patch
-            {
-                public static void Postfix()
+                catch (Exception ex)
                 {
-                    try
-                    {
-                        if (!modSettings.SaveState)
-                        {
-                            return;
-                        }
-
-                        var filename = modSettings.SaveDirectory + "/" + fileID.Substring(4) + ".gzip";
-                        if (!Directory.Exists(modSettings.SaveDirectory) ||
-                            !File.Exists(filename))
-                        {
-                            Log("SaveState disabled, or missing data");
-                            return;
-                        }
-
-                        var results = new List<IList>();
-                        Log("Hydrate scorches and footsteps");
-                        // first element is always scorches, 2nd footsteps
-                        results.Add(Helpers.RecreateDecals(filename, "scorchList", 0));
-                        results.Add(Helpers.RecreateDecals(filename, "footstepList", 1));
-                        var scorchList = Traverse.Create(FootstepManager.Instance).Property("scorchList").GetValue<IList>();
-                        var footstepList = Traverse.Create(FootstepManager.Instance).Property("footstepList").GetValue<IList>();
-
-                        foreach (var decal in results[0])
-                        {
-                            scorchList.Add(decal);
-                        }
-
-                        foreach (var decal in results[1])
-                        {
-                            footstepList.Add(decal);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Log(ex);
-                    }
+                    Log(ex);
                 }
             }
         }

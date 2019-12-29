@@ -15,8 +15,72 @@ using static ScorchedEarth.ScorchedEarth;
 
 namespace ScorchedEarth
 {
+    public static class Extensions
+    {
+        // thanks StackOverflow
+        public static T[] Slice<T>(this T[] source, int index, int length)
+        {
+            T[] slice = new T[length];
+            Array.Copy(source, index, slice, 0, length);
+            return slice;
+        }
+    }
+
     internal class Helpers
     {
+        private static readonly int BtFootstepAlpha = Shader.PropertyToID("_BT_FootstepAlpha");
+        private static readonly int BtScorchAlpha = Shader.PropertyToID("_BT_ScorchAlpha");
+
+        // adapted from the assembly
+        public static Matrix4x4[][] ProcessFootsteps(out int numFootsteps)
+        {
+            var instance = FootstepManager.Instance;
+            var num = 0;
+            while (num < instance.footstepList.Count && num < FootstepManager.maxDecals)
+            {
+                var terrainDecal = instance.footstepList[num];
+                instance.footstepAlphas[num] = Mathf.SmoothStep(0f, 1f, 1f);
+                instance.footstepTRS[num] = terrainDecal.transformMatrix;
+                num++;
+            }
+
+            Shader.SetGlobalFloatArray(BtFootstepAlpha, instance.footstepAlphas);
+            numFootsteps = instance.footstepList.Count;
+            // split up the results into chunkSize arrays
+            var result = new Matrix4x4[modSettings.MaxDecals / chunkSize][];
+            for (int i = 0, j = 0; i < numFootsteps; i += chunkSize, j++)
+            {
+                result[j] = instance.footstepTRS.Slice(i, chunkSize);
+            }
+
+            return result;
+        }
+
+        // adapted from the assembly
+        public static Matrix4x4[][] ProcessScorches(out int numScorches)
+        {
+            var instance = FootstepManager.Instance;
+            int num = 0;
+            while (num < instance.scorchList.Count && num < FootstepManager.maxDecals)
+            {
+                var terrainDecal = instance.scorchList[num];
+                instance.scorchAlphas[num] = Mathf.SmoothStep(0f, 1f, 1f);
+                instance.scorchTRS[num] = terrainDecal.transformMatrix;
+                num++;
+            }
+
+            Shader.SetGlobalFloatArray(BtScorchAlpha, instance.scorchAlphas);
+            numScorches = instance.scorchList.Count;
+            // split up the results into chunkSize arrays
+            var result = new Matrix4x4[modSettings.MaxDecals / chunkSize][];
+            for (int i = 0, j = 0; i < numScorches; i += chunkSize, j++)
+            {
+                result[j] = instance.scorchTRS.Slice(i, chunkSize);
+            }
+
+            return result;
+        }
+
         // thanks jo!
         internal static float Distance(Matrix4x4 existingScorchPosition, Vector3 newScorchPosition)
         {
@@ -126,6 +190,7 @@ namespace ScorchedEarth
                 // legacy cleanup for 3.0
                 // 2nd save would be required to get rid of both 3.0 and 3.0.1 files for a missing save
                 // this block would only be called once
+                // TODO remove this eventually because how much do we care about legacy mod save data
                 if (modSaves.Any(x => x.Name.EndsWith(".scorches.json")))
                 {
                     // no point going through the footsteps separately so just assume they're in pairs
