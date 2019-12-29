@@ -13,6 +13,7 @@ namespace ScorchedEarth
     {
         // must be at least this far away to not be filtered out
         public const float DecalDistance = 4.25f;
+        public const float FootstepDistance = 1f;
         internal const int chunkSize = 125;
         internal static readonly HarmonyInstance harmony = HarmonyInstance.Create("ca.gnivler.BattleTech.ScorchedEarth");
         internal static Settings modSettings;
